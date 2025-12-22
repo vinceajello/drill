@@ -9,7 +9,7 @@ fn main() -> iced::Result {
         CreateTunnelDialog::update,
         CreateTunnelDialog::view,
     )
-    .window_size(Size::new(500.0, 600.0))
+    .window_size(Size::new(500.0, 640.0))
     .resizable(false)
     .run()
 }
@@ -107,7 +107,7 @@ impl CreateTunnelDialog {
         }
     }
 
-    fn view(&self) -> Element<Message> {
+    fn view(&self) -> Element<'_, Message> {
         let mut content = column![
             text("Create New Tunnel").size(20),
             text("").size(8),
