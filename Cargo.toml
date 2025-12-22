@@ -23,8 +23,8 @@ chrono = "0.4"
 tray-icon = "0.19"
 tao = "0.30"
 
-# Native dialogs
-rfd = "0.15"
+# GUI framework
+iced = { version = "0.13", features = ["tokio"] }
 
 # YAML serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -44,3 +44,15 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
+[[bin]]
+name = "drill"
+path = "src/main.rs"
+
+[[bin]]
+name = "drill-about"
+path = "src/panels/bin/about_dialog.rs"
+
+[[bin]]
+name = "drill-create"
+path = "src/panels/bin/create_dialog.rs"
