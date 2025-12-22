@@ -10,6 +10,7 @@ pub struct TrayMenuIds {
     pub quit: MenuId,
     pub tunnel_connect: HashMap<String, MenuId>,
     pub tunnel_disconnect: HashMap<String, MenuId>,
+    pub tunnel_remove: HashMap<String, MenuId>,
 }
 
 /// Initialize the system tray icon with menu
@@ -25,6 +26,7 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager
     // Add tunnels with submenu for each tunnel
     let mut tunnel_connect_ids = HashMap::new();
     let mut tunnel_disconnect_ids = HashMap::new();
+    let mut tunnel_remove_ids = HashMap::new();
     
     let manager = tunnel_manager.lock().unwrap();
     
@@ -51,6 +53,12 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager
                 tunnel_submenu.append(&disconnect_item)?;
             }
         }
+        
+        // Add Remove option (always visible)
+        let remove_item = MenuItem::new("Remove", true, None);
+        let remove_id = remove_item.id().clone();
+        tunnel_remove_ids.insert(tunnel.name.clone(), remove_id);
+        tunnel_submenu.append(&remove_item)?;
         
         menu.append(&tunnel_submenu)?;
     }
@@ -101,6 +109,7 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager
         create: create_id,
         tunnel_connect: tunnel_connect_ids,
         tunnel_disconnect: tunnel_disconnect_ids,
+        tunnel_remove: tunnel_remove_ids,
     }))
 }
 
@@ -117,6 +126,7 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
     // Add tunnels with submenu for each tunnel
     let mut tunnel_connect_ids = HashMap::new();
     let mut tunnel_disconnect_ids = HashMap::new();
+    let mut tunnel_remove_ids = HashMap::new();
     
     let manager = tunnel_manager.lock().unwrap();
     
@@ -143,6 +153,12 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
                 tunnel_submenu.append(&disconnect_item)?;
             }
         }
+        
+        // Add Remove option (always visible)
+        let remove_item = MenuItem::new("Remove", true, None);
+        let remove_id = remove_item.id().clone();
+        tunnel_remove_ids.insert(tunnel.name.clone(), remove_id);
+        tunnel_submenu.append(&remove_item)?;
         
         menu.append(&tunnel_submenu)?;
     }
@@ -174,6 +190,7 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
         create: create_id,
         tunnel_connect: tunnel_connect_ids,
         tunnel_disconnect: tunnel_disconnect_ids,
+        tunnel_remove: tunnel_remove_ids,
     })
 }
 

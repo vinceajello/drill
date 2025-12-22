@@ -154,6 +154,7 @@ impl TunnelManager {
     }
 
     /// Toggle a tunnel (start if stopped, stop if started)
+    #[allow(dead_code)]
     pub fn toggle_tunnel(&self, tunnel_name: &str) -> Result<(), Box<dyn std::error::Error>> {
         if self.is_tunnel_active(tunnel_name) {
             self.stop_tunnel(tunnel_name)?;
@@ -165,6 +166,23 @@ impl TunnelManager {
             }
         }
         Ok(())
+    }
+
+    /// Remove a tunnel by name
+    pub fn remove_tunnel(&mut self, tunnel_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // First, stop the tunnel if it's active
+        if self.is_tunnel_active(tunnel_name) {
+            self.stop_tunnel(tunnel_name)?;
+        }
+
+        // Remove from tunnels list
+        if let Some(index) = self.tunnels.iter().position(|t| t.name == tunnel_name) {
+            self.tunnels.remove(index);
+            log_print(&format!("Tunnel '{}' removed", tunnel_name));
+            Ok(())
+        } else {
+            Err(format!("Tunnel '{}' not found", tunnel_name).into())
+        }
     }
 
     /// Clean up all active tunnels
