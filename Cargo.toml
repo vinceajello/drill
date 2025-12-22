@@ -1,0 +1,42 @@
+[package]
+name = "drill"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <you@example.com>"]
+description = "A multi-platform application for macOS, Windows, and Linux"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Cross-platform system information
+sysinfo = "0.32"
+
+# Cross-platform paths and directories
+dirs = "5.0"
+
+# Command line argument parsing
+clap = { version = "4.5", features = ["derive"] }
+
+# Date and time
+chrono = "0.4"
+
+# System tray icon
+tray-icon = "0.19"
+tao = "0.30"
+
+# Native dialogs
+rfd = "0.15"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# macOS specific dependencies
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Windows specific dependencies
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Linux specific dependencies
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
