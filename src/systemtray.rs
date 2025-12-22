@@ -1,18 +1,71 @@
-use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuId}, TrayIcon};
+use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuId, PredefinedMenuItem, Submenu}, TrayIcon};
 use crate::logs::log_print;
+use crate::tunnels::{Tunnel, TunnelStatus, TunnelManager};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 pub struct TrayMenuIds {
+    pub create: MenuId,
     pub about: MenuId,
     pub quit: MenuId,
+    pub tunnel_connect: HashMap<String, MenuId>,
+    pub tunnel_disconnect: HashMap<String, MenuId>,
 }
 
 /// Initialize the system tray icon with menu
-pub fn init_tray() -> Result<(TrayIcon, TrayMenuIds), Box<dyn std::error::Error>> {
+pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager>>) -> Result<(TrayIcon, TrayMenuIds), Box<dyn std::error::Error>> {
     // Create a simple menu
     let menu = Menu::new();
+
+    let create_tunnel = MenuItem::new("Drill New Tunnel", true, None);
+    menu.append(&create_tunnel)?;
+
+    menu.append(&PredefinedMenuItem::separator())?;
+    
+    // Add tunnels with submenu for each tunnel
+    let mut tunnel_connect_ids = HashMap::new();
+    let mut tunnel_disconnect_ids = HashMap::new();
+    
+    let manager = tunnel_manager.lock().unwrap();
+    
+    for tunnel in tunnels {
+        // Get current status
+        let status = manager.get_tunnel_status(&tunnel.name);
+        let display_name = get_tunnel_display_name(&tunnel.name, status);
+        
+        // Create submenu for each tunnel with status indicator
+        let tunnel_submenu = Submenu::new(&display_name, true);
+        
+        // Only show Connect if not connected, only show Disconnect if connected
+        match status {
+            TunnelStatus::Disconnected | TunnelStatus::Error => {
+                let connect_item = MenuItem::new("Connect", true, None);
+                let connect_id = connect_item.id().clone();
+                tunnel_connect_ids.insert(tunnel.name.clone(), connect_id);
+                tunnel_submenu.append(&connect_item)?;
+            },
+            TunnelStatus::Connecting | TunnelStatus::Connected => {
+                let disconnect_item = MenuItem::new("Disconnect", true, None);
+                let disconnect_id = disconnect_item.id().clone();
+                tunnel_disconnect_ids.insert(tunnel.name.clone(), disconnect_id);
+                tunnel_submenu.append(&disconnect_item)?;
+            }
+        }
+        
+        menu.append(&tunnel_submenu)?;
+    }
+    
+    drop(manager);
+    
+    // Add separator if there are tunnels
+    if !tunnels.is_empty() {
+        menu.append(&PredefinedMenuItem::separator())?;
+    }
+    
     let about_item = MenuItem::new("About Drill", true, None);
     let quit_item = MenuItem::new("Quit", true, None);
-    
+
+    let create_id = create_tunnel.id().clone();
     let about_id = about_item.id().clone();
     let quit_id = quit_item.id().clone();
     
@@ -32,8 +85,107 @@ pub fn init_tray() -> Result<(TrayIcon, TrayMenuIds), Box<dyn std::error::Error>
             .build()?
     };
 
+    #[cfg(not(target_os = "macos"))]
+    let tray_icon = {
+        TrayIconBuilder::new()
+            .with_menu(Box::new(menu))
+            .with_tooltip("Drill Application - Click to see menu")
+            .with_icon(icon)
+            .build()?
+    };
+
     // Return the tray icon and menu IDs to keep them alive
-    Ok((tray_icon, TrayMenuIds { about: about_id, quit: quit_id }))
+    Ok((tray_icon, TrayMenuIds { 
+        about: about_id, 
+        quit: quit_id, 
+        create: create_id,
+        tunnel_connect: tunnel_connect_ids,
+        tunnel_disconnect: tunnel_disconnect_ids,
+    }))
+}
+
+/// Update the tray menu with current tunnel states
+pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager>>) -> Result<TrayMenuIds, Box<dyn std::error::Error>> {
+    // Create new menu
+    let menu = Menu::new();
+
+    let create_tunnel = MenuItem::new("Drill New Tunnel", true, None);
+    menu.append(&create_tunnel)?;
+
+    menu.append(&PredefinedMenuItem::separator())?;
+    
+    // Add tunnels with submenu for each tunnel
+    let mut tunnel_connect_ids = HashMap::new();
+    let mut tunnel_disconnect_ids = HashMap::new();
+    
+    let manager = tunnel_manager.lock().unwrap();
+    
+    for tunnel in tunnels {
+        // Get current status
+        let status = manager.get_tunnel_status(&tunnel.name);
+        let display_name = get_tunnel_display_name(&tunnel.name, status);
+        
+        // Create submenu for each tunnel with status indicator
+        let tunnel_submenu = Submenu::new(&display_name, true);
+        
+        // Only show Connect if not connected, only show Disconnect if connected
+        match status {
+            TunnelStatus::Disconnected | TunnelStatus::Error => {
+                let connect_item = MenuItem::new("Connect", true, None);
+                let connect_id = connect_item.id().clone();
+                tunnel_connect_ids.insert(tunnel.name.clone(), connect_id);
+                tunnel_submenu.append(&connect_item)?;
+            },
+            TunnelStatus::Connecting | TunnelStatus::Connected => {
+                let disconnect_item = MenuItem::new("Disconnect", true, None);
+                let disconnect_id = disconnect_item.id().clone();
+                tunnel_disconnect_ids.insert(tunnel.name.clone(), disconnect_id);
+                tunnel_submenu.append(&disconnect_item)?;
+            }
+        }
+        
+        menu.append(&tunnel_submenu)?;
+    }
+    
+    drop(manager);
+    
+    // Add separator if there are tunnels
+    if !tunnels.is_empty() {
+        menu.append(&PredefinedMenuItem::separator())?;
+    }
+    
+    let about_item = MenuItem::new("About Drill", true, None);
+    let quit_item = MenuItem::new("Quit", true, None);
+
+    let create_id = create_tunnel.id().clone();
+    let about_id = about_item.id().clone();
+    let quit_id = quit_item.id().clone();
+    
+    menu.append(&about_item)?;
+    menu.append(&quit_item)?;
+
+    // Update the tray icon menu
+    tray_icon.set_menu(Some(Box::new(menu)));
+
+    // Return the new menu IDs
+    Ok(TrayMenuIds { 
+        about: about_id, 
+        quit: quit_id, 
+        create: create_id,
+        tunnel_connect: tunnel_connect_ids,
+        tunnel_disconnect: tunnel_disconnect_ids,
+    })
+}
+
+/// Get status indicator for tunnel name
+pub fn get_tunnel_display_name(name: &str, status: TunnelStatus) -> String {
+    let indicator = match status {
+        TunnelStatus::Disconnected => "○ ",  // Empty circle (gray/disconnected)
+        TunnelStatus::Connecting => "◐ ",   // Half-filled circle (connecting)
+        TunnelStatus::Connected => "● ",    // Filled circle (connected/green)
+        TunnelStatus::Error => "✗ ",        // X mark (error/red)
+    };
+    format!("{}{}", indicator, name)
 }
 
 /// Create a monochromatic icon suitable for system tray

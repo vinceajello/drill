@@ -59,6 +59,30 @@ pub fn init_config() -> Result<PathBuf, Box<dyn std::error::Error>> {
         // Load existing config (for now just read it)
         let _config_content = fs::read_to_string(&config_file)?;
     }
+
+    // Create tunnels file path
+    let tunnels_file = drill_dir.join("tunnels");
+    
+    // Check if tunnels file exists, create if not
+    if !tunnels_file.exists() {
+        logs::log_print(&format!("Creating default tunnels file at: {}", tunnels_file.display()));
+        let mut file = fs::File::create(&tunnels_file)?;
+        
+        // Write default empty tunnels array in YAML format
+        let default_tunnels = "[]\n";
+        file.write_all(default_tunnels.as_bytes())?;
+    } else {
+        logs::log_print(&format!("Tunnels file found at: {}", tunnels_file.display()));
+    }
     
     Ok(config_file)
+}
+
+/// Get the path to the tunnels file
+pub fn get_tunnels_file_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let home_dir = dirs::home_dir()
+        .ok_or("Could not determine home directory")?;
+    
+    let drill_dir = home_dir.join(".drill");
+    Ok(drill_dir.join("tunnels"))
 }
