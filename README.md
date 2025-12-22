@@ -1,1 +1,1 @@
-# Drill - Multi-Platform tunnel drilling Application
+# Drill - Multi-Platform tunnel drilling application
