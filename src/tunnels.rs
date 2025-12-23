@@ -17,12 +17,13 @@ pub enum TunnelStatus {
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Tunnel {
     pub name: String,
-    pub user: String,
-    pub host: String,
-    pub r_host: String,
-    pub r_port: u16,
-    pub l_host: String,
-    pub l_port: u16,
+    pub local_host: String,
+    pub local_port: String,
+    pub remote_host: String,
+    pub remote_port: String,
+    pub ssh_user: String,
+    pub ssh_host: String,
+    pub ssh_port: String,
 }
 
 pub struct TunnelManager {
@@ -74,6 +75,11 @@ impl TunnelManager {
         &self.tunnels
     }
 
+    /// Add a new tunnel
+    pub fn add_tunnel(&mut self, tunnel: Tunnel) {
+        self.tunnels.push(tunnel);
+    }
+
     /// Check if a tunnel is active
     pub fn is_tunnel_active(&self, tunnel_name: &str) -> bool {
         let processes = self.active_processes.lock().unwrap();
@@ -101,39 +107,47 @@ impl TunnelManager {
             status.insert(tunnel.name.clone(), TunnelStatus::Connecting);
         }
 
-        // Build SSH command: ssh -L l_port:r_host:r_port user@host
-        let local_forward = format!("{}:{}:{}", tunnel.l_port, tunnel.r_host, tunnel.r_port);
-        let remote = format!("{}@{}", tunnel.user, tunnel.host);
+        // Build SSH command: ssh -L local_port:remote_host:remote_port ssh_user@ssh_host -p ssh_port
+        let local_forward = format!(
+            "{}:{}:{}",
+            tunnel.local_port, tunnel.remote_host, tunnel.remote_port
+        );
+        let remote = format!("{}@{}", tunnel.ssh_user, tunnel.ssh_host);
 
-        log_print(&format!("Starting tunnel '{}': ssh -L {} -N {}", 
-            tunnel.name, local_forward, remote));
+        log_print(&format!(
+            "Starting tunnel '{}': ssh -L {} -N {} -p {}",
+            tunnel.name, local_forward, remote, tunnel.ssh_port
+        ));
 
         match Command::new("ssh")
             .arg("-L")
             .arg(&local_forward)
-            .arg("-N")  // Don't execute remote command
+            .arg("-N") // Don't execute remote command
             .arg("-o")
             .arg("ServerAliveInterval=60")
             .arg("-o")
             .arg("ServerAliveCountMax=3")
+            .arg("-p")
+            .arg(&tunnel.ssh_port)
             .arg(&remote)
-            .spawn() {
-                Ok(child) => {
-                    processes.insert(tunnel.name.clone(), child);
-                    // Set status to connected
-                    let mut status = self.tunnel_status.lock().unwrap();
-                    status.insert(tunnel.name.clone(), TunnelStatus::Connected);
-                    log_print(&format!("Tunnel '{}' started successfully", tunnel.name));
-                    Ok(())
-                },
-                Err(e) => {
-                    // Set status to error
-                    let mut status = self.tunnel_status.lock().unwrap();
-                    status.insert(tunnel.name.clone(), TunnelStatus::Error);
-                    log_print(&format!("Error starting tunnel '{}': {}", tunnel.name, e));
-                    Err(e.into())
-                }
+            .spawn()
+        {
+            Ok(child) => {
+                processes.insert(tunnel.name.clone(), child);
+                // Set status to connected
+                let mut status = self.tunnel_status.lock().unwrap();
+                status.insert(tunnel.name.clone(), TunnelStatus::Connected);
+                log_print(&format!("Tunnel '{}' started successfully", tunnel.name));
+                Ok(())
             }
+            Err(e) => {
+                // Set status to error
+                let mut status = self.tunnel_status.lock().unwrap();
+                status.insert(tunnel.name.clone(), TunnelStatus::Error);
+                log_print(&format!("Error starting tunnel '{}': {}", tunnel.name, e));
+                Err(e.into())
+            }
+        }
     }
 
     /// Stop a tunnel

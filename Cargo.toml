@@ -21,10 +21,9 @@ chrono = "0.4"
 
 # System tray icon
 tray-icon = "0.19"
-tao = "0.30"
 
-# GUI framework
-iced = { version = "0.13", features = ["tokio"] }
+# GUI framework - multi-window support
+iced = { version = "0.13", features = ["tokio", "multi-window"] }
 
 # YAML serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -48,11 +47,3 @@ strip = true
 [[bin]]
 name = "drill"
 path = "src/main.rs"
-
-[[bin]]
-name = "drill-about"
-path = "src/panels/bin/about_dialog.rs"
-
-[[bin]]
-name = "drill-create"
-path = "src/panels/bin/create_dialog.rs"
