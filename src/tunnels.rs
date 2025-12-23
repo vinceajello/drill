@@ -24,6 +24,8 @@ pub struct Tunnel {
     pub ssh_user: String,
     pub ssh_host: String,
     pub ssh_port: String,
+    #[serde(default)]
+    pub private_key: String,
 }
 
 pub struct TunnelManager {
@@ -114,12 +116,31 @@ impl TunnelManager {
         );
         let remote = format!("{}@{}", tunnel.ssh_user, tunnel.ssh_host);
 
+        let full_command = if !tunnel.private_key.trim().is_empty() {
+            format!(
+                "ssh -i {} -L {} -N -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -p {} {}",
+                tunnel.private_key, local_forward, tunnel.ssh_port, remote
+            )
+        } else {
+            format!(
+                "ssh -L {} -N -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -p {} {}",
+                local_forward, tunnel.ssh_port, remote
+            )
+        };
+
         log_print(&format!(
-            "Starting tunnel '{}': ssh -L {} -N {} -p {}",
-            tunnel.name, local_forward, remote, tunnel.ssh_port
+            "Starting tunnel '{}': {}",
+            tunnel.name, full_command
         ));
 
-        match Command::new("ssh")
+        let mut command = Command::new("ssh");
+        
+        // Add private key if provided
+        if !tunnel.private_key.trim().is_empty() {
+            command.arg("-i").arg(&tunnel.private_key);
+        }
+        
+        command
             .arg("-L")
             .arg(&local_forward)
             .arg("-N") // Don't execute remote command
@@ -129,8 +150,9 @@ impl TunnelManager {
             .arg("ServerAliveCountMax=3")
             .arg("-p")
             .arg(&tunnel.ssh_port)
-            .arg(&remote)
-            .spawn()
+            .arg(&remote);
+
+        match command.spawn()
         {
             Ok(child) => {
                 processes.insert(tunnel.name.clone(), child);
@@ -167,21 +189,6 @@ impl TunnelManager {
         Ok(())
     }
 
-    /// Toggle a tunnel (start if stopped, stop if started)
-    #[allow(dead_code)]
-    pub fn toggle_tunnel(&self, tunnel_name: &str) -> Result<(), Box<dyn std::error::Error>> {
-        if self.is_tunnel_active(tunnel_name) {
-            self.stop_tunnel(tunnel_name)?;
-        } else {
-            if let Some(tunnel) = self.tunnels.iter().find(|t| t.name == tunnel_name) {
-                self.start_tunnel(tunnel)?;
-            } else {
-                return Err(format!("Tunnel '{}' not found", tunnel_name).into());
-            }
-        }
-        Ok(())
-    }
-
     /// Remove a tunnel by name
     pub fn remove_tunnel(&mut self, tunnel_name: &str) -> Result<(), Box<dyn std::error::Error>> {
         // First, stop the tunnel if it's active
@@ -196,6 +203,54 @@ impl TunnelManager {
             Ok(())
         } else {
             Err(format!("Tunnel '{}' not found", tunnel_name).into())
+        }
+    }
+
+    /// Test SSH connection without creating a tunnel
+    pub fn test_tunnel(tunnel: &Tunnel) -> Result<String, String> {
+        let remote = format!("{}@{}", tunnel.ssh_user, tunnel.ssh_host);
+        
+        log_print(&format!(
+            "Testing SSH connection to {} on port {}",
+            remote, tunnel.ssh_port
+        ));
+
+        // Use ssh with -o BatchMode=yes to avoid interactive prompts
+        // and -o ConnectTimeout=5 to timeout quickly
+        let mut command = Command::new("ssh");
+        
+        // Add private key if provided
+        if !tunnel.private_key.trim().is_empty() {
+            command.arg("-i").arg(&tunnel.private_key);
+        }
+        
+        command
+            .arg("-o")
+            .arg("BatchMode=yes")
+            .arg("-o")
+            .arg("ConnectTimeout=5")
+            .arg("-p")
+            .arg(&tunnel.ssh_port)
+            .arg(&remote)
+            .arg("echo")
+            .arg("'SSH connection test successful'");
+
+        match command.output()
+        {
+            Ok(output) => {
+                if output.status.success() {
+                    log_print(&format!("SSH connection test to {} succeeded", remote));
+                    Ok("✓ SSH connection successful! You can now create the tunnel.".to_string())
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    log_print(&format!("SSH connection test to {} failed: {}", remote, stderr));
+                    Err(format!("SSH connection failed: {}", stderr.trim()))
+                }
+            }
+            Err(e) => {
+                log_print(&format!("Error testing SSH connection to {}: {}", remote, e));
+                Err(format!("Error testing SSH connection: {}", e))
+            }
         }
     }
 

@@ -13,7 +13,9 @@ pub enum WindowType {
         ssh_user: String,
         ssh_host: String,
         ssh_port: String,
+        private_key: String,
         error_message: Option<String>,
+        test_message: Option<String>,
     },
 }
 
@@ -21,14 +23,16 @@ impl WindowType {
     pub fn new_create_tunnel() -> Self {
         WindowType::CreateTunnel {
             name: String::new(),
-            local_host: "localhost".to_string(),
+            local_host: "127.0.0.1".to_string(),
             local_port: String::new(),
-            remote_host: String::new(),
+            remote_host: "127.0.0.1".to_string(),
             remote_port: String::new(),
             ssh_user: String::new(),
             ssh_host: String::new(),
             ssh_port: "22".to_string(),
+            private_key: String::new(),
             error_message: None,
+            test_message: None,
         }
     }
 }

@@ -1,5 +1,6 @@
 use crate::config;
 use crate::logs::log_print;
+use crate::notifications;
 use crate::systemtray::{self, TrayMenuIds};
 use crate::tunnels::TunnelManager;
 use crate::windows::{self, WindowType};
@@ -47,6 +48,8 @@ pub enum Message {
     CreateTunnelSshUserChanged(String),
     CreateTunnelSshHostChanged(String),
     CreateTunnelSshPortChanged(String),
+    CreateTunnelPrivateKeyChanged(String),
+    CreateTunnelTest(window::Id),
     CreateTunnelCreate(window::Id),
     CreateTunnelCancel(window::Id),
 
@@ -190,7 +193,7 @@ impl App {
 
                 log_print("Opening Create Tunnel window...");
                 let (id, open) = window::open(window::Settings {
-                    size: Size::new(500.0, 640.0),
+                    size: Size::new(500.0, 560.0),
                     resizable: false,
                     ..window::Settings::default()
                 });
@@ -208,11 +211,17 @@ impl App {
                 let manager = self.tunnel_manager.lock().unwrap();
                 if let Some(tunnel) = manager.get_tunnels().iter().find(|t| t.name == tunnel_name)
                 {
-                    if let Err(e) = manager.start_tunnel(tunnel) {
-                        log_print(&format!(
-                            "Error starting tunnel '{}': {}",
-                            tunnel_name, e
-                        ));
+                    match manager.start_tunnel(tunnel) {
+                        Ok(_) => {
+                            notifications::notify_tunnel_connected(&tunnel_name);
+                        }
+                        Err(e) => {
+                            log_print(&format!(
+                                "Error starting tunnel '{}': {}",
+                                tunnel_name, e
+                            ));
+                            notifications::notify_tunnel_error(&tunnel_name, &e.to_string());
+                        }
                     }
                 }
                 drop(manager);
@@ -222,11 +231,16 @@ impl App {
             Message::TunnelDisconnect(tunnel_name) => {
                 log_print(&format!("Disconnect tunnel '{}'", tunnel_name));
                 let manager = self.tunnel_manager.lock().unwrap();
-                if let Err(e) = manager.stop_tunnel(&tunnel_name) {
-                    log_print(&format!(
-                        "Error stopping tunnel '{}': {}",
-                        tunnel_name, e
-                    ));
+                match manager.stop_tunnel(&tunnel_name) {
+                    Ok(_) => {
+                        notifications::notify_tunnel_disconnected(&tunnel_name);
+                    }
+                    Err(e) => {
+                        log_print(&format!(
+                            "Error stopping tunnel '{}': {}",
+                            tunnel_name, e
+                        ));
+                    }
                 }
                 drop(manager);
                 self.update(Message::UpdateTrayMenu)
@@ -235,17 +249,22 @@ impl App {
             Message::TunnelRemove(tunnel_name) => {
                 log_print(&format!("Remove tunnel '{}'", tunnel_name));
                 let mut manager = self.tunnel_manager.lock().unwrap();
-                if let Err(e) = manager.remove_tunnel(&tunnel_name) {
-                    log_print(&format!(
-                        "Error removing tunnel '{}': {}",
-                        tunnel_name, e
-                    ));
-                } else {
-                    // Save the updated tunnels list
-                    if let Err(e) =
-                        TunnelManager::save_tunnels(&self.tunnels_file, manager.get_tunnels())
-                    {
-                        log_print(&format!("Error saving tunnels: {}", e));
+                match manager.remove_tunnel(&tunnel_name) {
+                    Ok(_) => {
+                        // Save the updated tunnels list
+                        if let Err(e) =
+                            TunnelManager::save_tunnels(&self.tunnels_file, manager.get_tunnels())
+                        {
+                            log_print(&format!("Error saving tunnels: {}", e));
+                        } else {
+                            notifications::notify_tunnel_removed(&tunnel_name);
+                        }
+                    }
+                    Err(e) => {
+                        log_print(&format!(
+                            "Error removing tunnel '{}': {}",
+                            tunnel_name, e
+                        ));
                     }
                 }
                 drop(manager);
@@ -359,6 +378,79 @@ impl App {
                 Task::none()
             }
 
+            Message::CreateTunnelPrivateKeyChanged(value) => {
+                self.update_create_tunnel_field(|ct| {
+                    if let WindowType::CreateTunnel { private_key, .. } = ct {
+                        *private_key = value.clone();
+                    }
+                });
+                Task::none()
+            }
+
+            Message::CreateTunnelTest(window_id) => {
+                // Get the window data and test the connection
+                if let Some(WindowType::CreateTunnel {
+                    name,
+                    local_host,
+                    local_port,
+                    remote_host,
+                    remote_port,
+                    ssh_user,
+                    ssh_host,
+                    ssh_port,
+                    private_key,
+                    error_message,
+                    test_message,
+                }) = self.windows.get_mut(&window_id)
+                {
+                    // Clear previous messages
+                    *error_message = None;
+                    *test_message = None;
+
+                    // Validate basic fields before testing
+                    match windows::create_tunnel::validate_and_create_tunnel(
+                        name,
+                        local_host,
+                        local_port,
+                        remote_host,
+                        remote_port,
+                        ssh_user,
+                        ssh_host,
+                        ssh_port,
+                        private_key,
+                    ) {
+                        Ok(tunnel) => {
+                            // Test the SSH connection
+                            match TunnelManager::test_tunnel(&tunnel) {
+                                Ok(success_msg) => {
+                                    *test_message = Some(success_msg);
+                                }
+                                Err(err_msg) => {
+                                    *test_message = Some(err_msg);
+                                }
+                            }
+                            // Resize window to accommodate message
+                            // Calculate extra height based on message length
+                            let extra_height = test_message.as_ref().map(|msg| {
+                                let lines = (msg.len() / 60).max(1) as f32;
+                                lines * 20.0 + 40.0
+                            }).unwrap_or(0.0);
+                            return window::resize(window_id, Size::new(500.0, 640.0 + extra_height));
+                        }
+                        Err(err) => {
+                            *error_message = Some(err);
+                            // Resize window to accommodate error message
+                            let extra_height = error_message.as_ref().map(|msg| {
+                                let lines = (msg.len() / 60).max(1) as f32;
+                                lines * 20.0 + 40.0
+                            }).unwrap_or(0.0);
+                            return window::resize(window_id, Size::new(500.0, 640.0 + extra_height));
+                        }
+                    }
+                }
+                Task::none()
+            }
+
             Message::CreateTunnelCreate(window_id) => {
                 // Get the window data
                 if let Some(WindowType::CreateTunnel {
@@ -370,7 +462,9 @@ impl App {
                     ssh_user,
                     ssh_host,
                     ssh_port,
+                    private_key,
                     error_message,
+                    test_message: _,
                 }) = self.windows.get_mut(&window_id)
                 {
                     match windows::create_tunnel::validate_and_create_tunnel(
@@ -382,6 +476,7 @@ impl App {
                         ssh_user,
                         ssh_host,
                         ssh_port,
+                        private_key,
                     ) {
                         Ok(tunnel) => {
                             log_print(&format!("Saving new tunnel: {}", tunnel.name));
@@ -396,6 +491,8 @@ impl App {
                                 manager.get_tunnels(),
                             ) {
                                 log_print(&format!("Error saving tunnels: {}", e));
+                            } else {
+                                notifications::notify_tunnel_created(&tunnel.name);
                             }
                             drop(manager);
 
@@ -407,6 +504,12 @@ impl App {
                         }
                         Err(err) => {
                             *error_message = Some(err);
+                            // Resize window to accommodate error message
+                            let extra_height = error_message.as_ref().map(|msg| {
+                                let lines = (msg.len() / 60).max(1) as f32;
+                                lines * 20.0 + 40.0
+                            }).unwrap_or(0.0);
+                            return window::resize(window_id, Size::new(500.0, 640.0 + extra_height));
                         }
                     }
                 }
@@ -454,7 +557,9 @@ impl App {
                     ssh_user,
                     ssh_host,
                     ssh_port,
+                    private_key,
                     error_message,
+                    test_message,
                 } => windows::create_tunnel::view(
                     name,
                     local_host,
@@ -464,7 +569,9 @@ impl App {
                     ssh_user,
                     ssh_host,
                     ssh_port,
+                    private_key,
                     error_message,
+                    test_message,
                 )
                 .map(move |msg| match msg {
                     windows::create_tunnel::Message::NameChanged(v) => {
@@ -490,6 +597,12 @@ impl App {
                     }
                     windows::create_tunnel::Message::SshPortChanged(v) => {
                         Message::CreateTunnelSshPortChanged(v)
+                    }
+                    windows::create_tunnel::Message::PrivateKeyChanged(v) => {
+                        Message::CreateTunnelPrivateKeyChanged(v)
+                    }
+                    windows::create_tunnel::Message::Test => {
+                        Message::CreateTunnelTest(window_id)
                     }
                     windows::create_tunnel::Message::Create => {
                         Message::CreateTunnelCreate(window_id)
