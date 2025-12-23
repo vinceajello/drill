@@ -3,6 +3,7 @@ use crate::logs::log_print;
 use crate::systemtray::{self, TrayMenuIds};
 use crate::tunnels::TunnelManager;
 use crate::windows::{self, WindowType};
+use iced::futures::SinkExt;
 use iced::window;
 use iced::{Element, Size, Subscription, Task};
 use std::collections::BTreeMap;
@@ -35,7 +36,7 @@ pub enum Message {
     WindowClosed(window::Id),
 
     // About window messages
-    AboutClose,
+    //AboutClose,
 
     // Create tunnel window messages
     CreateTunnelNameChanged(String),
@@ -121,6 +122,8 @@ impl App {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::TrayMenuEvent(event) => {
+                log_print(&format!("Received tray menu event: {:?}", event.id));
+                
                 if let Some(menu_ids) = &self.menu_ids {
                     // Check for Create action
                     if event.id == menu_ids.create {
@@ -162,6 +165,12 @@ impl App {
             }
 
             Message::OpenAbout => {
+                // Check if About window is already open
+                if let Some((window_id, _)) = self.windows.iter().find(|(_, wt)| matches!(wt, WindowType::About)) {
+                    log_print("About window already open, bringing to front...");
+                    return window::gain_focus(*window_id);
+                }
+
                 log_print("Opening About window...");
                 let (id, open) = window::open(window::Settings {
                     size: Size::new(400.0, 300.0),
@@ -173,6 +182,12 @@ impl App {
             }
 
             Message::OpenCreateTunnel => {
+                // Check if CreateTunnel window is already open
+                if let Some((window_id, _)) = self.windows.iter().find(|(_, wt)| matches!(wt, WindowType::CreateTunnel { .. })) {
+                    log_print("Create Tunnel window already open, bringing to front...");
+                    return window::gain_focus(*window_id);
+                }
+
                 log_print("Opening Create Tunnel window...");
                 let (id, open) = window::open(window::Settings {
                     size: Size::new(500.0, 640.0),
@@ -255,22 +270,22 @@ impl App {
                 Task::none()
             }
 
-            Message::AboutClose => {
-                // Find the About window and close it
-                let window_id = self
-                    .windows
-                    .iter()
-                    .find_map(|(id, win_type)| match win_type {
-                        WindowType::About => Some(*id),
-                        _ => None,
-                    });
+            // Message::AboutClose => {
+            //     // Find the About window and close it
+            //     let window_id = self
+            //         .windows
+            //         .iter()
+            //         .find_map(|(id, win_type)| match win_type {
+            //             WindowType::About => Some(*id),
+            //             _ => None,
+            //         });
 
-                if let Some(id) = window_id {
-                    window::close(id)
-                } else {
-                    Task::none()
-                }
-            }
+            //     if let Some(id) = window_id {
+            //         window::close(id)
+            //     } else {
+            //         Task::none()
+            //     }
+            // }
 
             Message::CreateTunnelNameChanged(value) => {
                 self.update_create_tunnel_field(|ct| {
@@ -427,7 +442,7 @@ impl App {
             match window_type {
                 WindowType::About => {
                     windows::about::view().map(|msg| match msg {
-                        windows::about::Message::Close => Message::AboutClose,
+                        // windows::about::Message::Close => Message::AboutClose,
                     })
                 }
                 WindowType::CreateTunnel {
@@ -501,18 +516,24 @@ impl App {
                 _ => None,
             });
 
-        // Poll tray menu events
-        let menu_channel = MenuEvent::receiver();
-        let tray_subscription = iced::time::every(std::time::Duration::from_millis(16)).map(
-            move |_| {
-                if let Ok(event) = menu_channel.try_recv() {
-                    Message::TrayMenuEvent(event)
-                } else {
-                    // Dummy message that does nothing
-                    Message::WindowClosed(window::Id::unique())
+        // Poll tray menu events periodically
+        struct TrayEventsPoll;
+        
+        let tray_subscription = Subscription::run_with_id(
+            std::any::TypeId::of::<TrayEventsPoll>(),
+            iced::stream::channel(100, |mut output| async move {
+                loop {
+                    // Check for menu events
+                    let menu_channel = MenuEvent::receiver();
+                    while let Ok(event) = menu_channel.try_recv() {
+                        let _ = output.send(event).await;
+                    }
+                    
+                    // Small delay to avoid busy-waiting  
+                    tokio::time::sleep(tokio::time::Duration::from_millis(16)).await;
                 }
-            },
-        );
+            })
+        ).map(Message::TrayMenuEvent);
 
         Subscription::batch(vec![window_events, tray_subscription])
     }

@@ -1,7 +1,6 @@
 mod app;
 mod config;
 mod logs;
-mod panels;
 mod systemtray;
 mod tunnels;
 mod windows;
