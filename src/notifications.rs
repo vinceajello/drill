@@ -12,8 +12,6 @@ static INIT: Once = Once::new();
 #[cfg(target_os = "macos")]
 static INIT_SUCCESS: AtomicBool = AtomicBool::new(false);
 
-/// Initialize the notification system (macOS only)
-/// This must be called once at application startup
 #[cfg(target_os = "macos")]
 pub fn init_notifications() {
     INIT.call_once(|| {
@@ -64,7 +62,6 @@ fn show_macos_notification(title: &str, body: &str) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-/// Show a notification when a tunnel is connected
 pub fn notify_tunnel_connected(tunnel_name: &str) {
     log_print(&format!("Showing notification: Tunnel '{}' connected", tunnel_name));
     
@@ -74,8 +71,8 @@ pub fn notify_tunnel_connected(tunnel_name: &str) {
             "Tunnel Connected",
             &format!("Tunnel '{}' is now connected", tunnel_name)
         ) {
-            Ok(_) => log_print("✓ Notification sent successfully"),
-            Err(e) => log_print(&format!("✗ Error showing notification: {}", e)),
+            Ok(_) => {}
+            Err(e) => log_print(&format!("Error showing notification: {}", e)),
         }
     }
     
@@ -88,13 +85,12 @@ pub fn notify_tunnel_connected(tunnel_name: &str) {
             .timeout(Timeout::Milliseconds(5000))
             .show()
         {
-            Ok(_) => log_print("✓ Notification sent successfully"),
-            Err(e) => log_print(&format!("✗ Error showing notification: {}", e)),
+            Ok(_) => {}
+            Err(e) => log_print(&format!("Error showing notification: {}", e)),
         }
     }
 }
 
-/// Show a notification when a tunnel is disconnected
 pub fn notify_tunnel_disconnected(tunnel_name: &str) {
     log_print(&format!("Showing notification: Tunnel '{}' disconnected", tunnel_name));
     
@@ -104,8 +100,8 @@ pub fn notify_tunnel_disconnected(tunnel_name: &str) {
             "Tunnel Disconnected",
             &format!("Tunnel '{}' has been disconnected", tunnel_name)
         ) {
-            Ok(_) => log_print("✓ Notification sent successfully"),
-            Err(e) => log_print(&format!("✗ Error showing notification: {}", e)),
+            Ok(_) => {}
+            Err(e) => log_print(&format!("Error showing notification: {}", e)),
         }
     }
     
@@ -118,13 +114,12 @@ pub fn notify_tunnel_disconnected(tunnel_name: &str) {
             .timeout(Timeout::Milliseconds(5000))
             .show()
         {
-            Ok(_) => log_print("✓ Notification sent successfully"),
-            Err(e) => log_print(&format!("✗ Error showing notification: {}", e)),
+            Ok(_) => {}
+            Err(e) => log_print(&format!("Error showing notification: {}", e)),
         }
     }
 }
 
-/// Show a notification when there's an error connecting a tunnel
 pub fn notify_tunnel_error(tunnel_name: &str, error_message: &str) {
     log_print(&format!("Showing notification: Tunnel '{}' error - {}", tunnel_name, error_message));
     
@@ -134,8 +129,8 @@ pub fn notify_tunnel_error(tunnel_name: &str, error_message: &str) {
             "Tunnel Error",
             &format!("Failed to connect tunnel '{}':\n{}", tunnel_name, error_message)
         ) {
-            Ok(_) => log_print("✓ Notification sent successfully"),
-            Err(e) => log_print(&format!("✗ Error showing notification: {}", e)),
+            Ok(_) => {}
+            Err(e) => log_print(&format!("Error showing notification: {}", e)),
         }
     }
     
@@ -148,13 +143,12 @@ pub fn notify_tunnel_error(tunnel_name: &str, error_message: &str) {
             .timeout(Timeout::Milliseconds(10000))
             .show()
         {
-            Ok(_) => log_print("✓ Notification sent successfully"),
-            Err(e) => log_print(&format!("✗ Error showing notification: {}", e)),
+            Ok(_) => {}
+            Err(e) => log_print(&format!("Error showing notification: {}", e)),
         }
     }
 }
 
-/// Show a notification when a tunnel is removed
 pub fn notify_tunnel_removed(tunnel_name: &str) {
     log_print(&format!("Showing notification: Tunnel '{}' removed", tunnel_name));
     
@@ -164,8 +158,8 @@ pub fn notify_tunnel_removed(tunnel_name: &str) {
             "Tunnel Removed",
             &format!("Tunnel '{}' has been removed", tunnel_name)
         ) {
-            Ok(_) => log_print("✓ Notification sent successfully"),
-            Err(e) => log_print(&format!("✗ Error showing notification: {}", e)),
+            Ok(_) => {}
+            Err(e) => log_print(&format!("Error showing notification: {}", e)),
         }
     }
     
@@ -178,13 +172,12 @@ pub fn notify_tunnel_removed(tunnel_name: &str) {
             .timeout(Timeout::Milliseconds(5000))
             .show()
         {
-            Ok(_) => log_print("✓ Notification sent successfully"),
-            Err(e) => log_print(&format!("✗ Error showing notification: {}", e)),
+            Ok(_) => {}
+            Err(e) => log_print(&format!("Error showing notification: {}", e)),
         }
     }
 }
 
-/// Show a notification when a tunnel is created
 pub fn notify_tunnel_created(tunnel_name: &str) {
     log_print(&format!("Showing notification: Tunnel '{}' created", tunnel_name));
     
@@ -194,8 +187,8 @@ pub fn notify_tunnel_created(tunnel_name: &str) {
             "Tunnel Created",
             &format!("Tunnel '{}' has been created successfully", tunnel_name)
         ) {
-            Ok(_) => log_print("✓ Notification sent successfully"),
-            Err(e) => log_print(&format!("✗ Error showing notification: {}", e)),
+            Ok(_) => {}
+            Err(e) => log_print(&format!("Error showing notification: {}", e)),
         }
     }
     
@@ -208,8 +201,8 @@ pub fn notify_tunnel_created(tunnel_name: &str) {
             .timeout(Timeout::Milliseconds(5000))
             .show()
         {
-            Ok(_) => log_print("✓ Notification sent successfully"),
-            Err(e) => log_print(&format!("✗ Error showing notification: {}", e)),
+            Ok(_) => {}
+            Err(e) => log_print(&format!("Error showing notification: {}", e)),
         }
     }
 }

@@ -13,12 +13,14 @@ pub enum Message {
     SshHostChanged(String),
     SshPortChanged(String),
     PrivateKeyChanged(String),
+    BrowsePrivateKey,
     Test,
     Create,
     Cancel,
 }
 
 pub fn view<'a>(
+    is_edit_mode: bool,
     name: &str,
     local_host: &str,
     local_port: &str,
@@ -31,8 +33,9 @@ pub fn view<'a>(
     error_message: &'a Option<String>,
     test_message: &'a Option<String>,
 ) -> Element<'a, Message> {
+    let title = if is_edit_mode { "Edit Tunnel" } else { "Drill New Tunnel" };
     let mut content: Column<'a, Message> = column![
-        text("Create New Tunnel").size(20),
+        text(title).size(20),
         text("").size(8),
         text("Tunnel Name:").size(14),
         text_input("Enter tunnel name", name)
@@ -83,15 +86,38 @@ pub fn view<'a>(
         text_input("SSH user", ssh_user)
             .on_input(Message::SshUserChanged)
             .padding(8),
-        text_input("SSH host", ssh_host)
-            .on_input(Message::SshHostChanged)
-            .padding(8),
-        text_input("SSH port", ssh_port)
-            .on_input(Message::SshPortChanged)
-            .padding(8),
-        text_input("Private key path (optional)", private_key)
-            .on_input(Message::PrivateKeyChanged)
-            .padding(8),
+        row![
+            column![
+                text("SSH Host").size(12),
+                text_input("SSH host", ssh_host)
+                    .on_input(Message::SshHostChanged)
+                    .padding(8),
+            ]
+            .spacing(2)
+            .width(Length::Fill),
+            text(" ").width(Length::Fixed(10.0)),
+            column![
+                text("SSH Port").size(12),
+                text_input("Port (e.g., 22)", ssh_port)
+                    .on_input(Message::SshPortChanged)
+                    .padding(8),
+            ]
+            .spacing(2)
+            .width(Length::Fill),
+        ],
+        text("").size(4),
+        text("Private Key (optional)").size(12),
+        row![
+            text_input("Path to private key file", private_key)
+                .on_input(Message::PrivateKeyChanged)
+                .padding(8)
+                .width(Length::Fill),
+            text(" ").width(Length::Fixed(8.0)),
+            button("Browse")
+                .on_press(Message::BrowsePrivateKey)
+                .padding(8),
+        ]
+        .align_y(iced::Alignment::Center),
     ]
     .spacing(5)
     .padding(20);
@@ -123,13 +149,14 @@ pub fn view<'a>(
     }
 
     content = content.push(text("").size(8));
+    let action_button_text = if is_edit_mode { "Save" } else { "Create" };
     content = content.push(
         row![
             button("Cancel").on_press(Message::Cancel).padding(8),
             text(" "),
             button("Test").on_press(Message::Test).padding(8),
             text(" "),
-            button("Create").on_press(Message::Create).padding(8),
+            button(action_button_text).on_press(Message::Create).padding(8),
         ]
         .spacing(10),
     );
@@ -177,6 +204,7 @@ pub fn validate_and_create_tunnel(
     }
 
     Ok(Tunnel {
+        id: uuid::Uuid::new_v4().to_string(),
         name: name.to_string(),
         local_host: local_host.to_string(),
         local_port: local_port.to_string(),
@@ -187,4 +215,15 @@ pub fn validate_and_create_tunnel(
         ssh_port: ssh_port.to_string(),
         private_key: private_key.to_string(),
     })
+}
+
+/// Open file picker dialog to select a private key file
+/// This function shows hidden files by default
+pub fn browse_for_private_key() -> Option<String> {
+    rfd::FileDialog::new()
+        .add_filter("SSH Keys", &["pem", "key", "pub", "ppk"])
+        .add_filter("All Files", &["*"])
+        .set_title("Select SSH Private Key")
+        .pick_file()
+        .and_then(|path| path.to_str().map(|s| s.to_string()))
 }

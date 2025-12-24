@@ -16,6 +16,7 @@ pub enum TunnelStatus {
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Tunnel {
+    pub id: String,
     pub name: String,
     pub local_host: String,
     pub local_port: String,
@@ -80,6 +81,23 @@ impl TunnelManager {
     /// Add a new tunnel
     pub fn add_tunnel(&mut self, tunnel: Tunnel) {
         self.tunnels.push(tunnel);
+    }
+
+    /// Update an existing tunnel by ID
+    pub fn update_tunnel(&mut self, tunnel_id: &str, updated_tunnel: Tunnel) -> Result<(), Box<dyn std::error::Error>> {
+        // Find tunnel by ID
+        if let Some(index) = self.tunnels.iter().position(|t| t.id == tunnel_id) {
+            // If tunnel is active, we may need to restart it with new settings
+            let _old_name = self.tunnels[index].name.clone();
+            
+            // Update the tunnel
+            self.tunnels[index] = updated_tunnel;
+            
+            log_print(&format!("Tunnel with ID '{}' updated", tunnel_id));
+            Ok(())
+        } else {
+            Err(format!("Tunnel with ID '{}' not found", tunnel_id).into())
+        }
     }
 
     /// Check if a tunnel is active
@@ -181,7 +199,7 @@ impl TunnelManager {
             // Set status to disconnected
             let mut status = self.tunnel_status.lock().unwrap();
             status.insert(tunnel_name.to_string(), TunnelStatus::Disconnected);
-            log_print(&format!("Tunnel '{}' stopped", tunnel_name));
+            log_print(&format!("Tunnel '{}' disconnected", tunnel_name));
         } else {
             log_print(&format!("Tunnel '{}' is not active", tunnel_name));
         }
@@ -260,9 +278,7 @@ impl TunnelManager {
         for (name, mut child) in processes.drain() {
             if let Err(e) = child.kill() {
                 log_print(&format!("Error stopping tunnel '{}': {}", name, e));
-            } else {
-                log_print(&format!("Stopped tunnel '{}'", name));
-            }
+            } 
         }
     }
 }
