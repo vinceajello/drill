@@ -10,6 +10,7 @@ pub struct TrayMenuIds {
     pub quit: MenuId,
     pub tunnel_connect: HashMap<String, MenuId>,
     pub tunnel_disconnect: HashMap<String, MenuId>,
+    pub tunnel_open_web: HashMap<String, MenuId>,
     pub tunnel_edit: HashMap<String, MenuId>,
     pub tunnel_remove: HashMap<String, MenuId>,
 }
@@ -27,6 +28,7 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager
     // Add tunnels with submenu for each tunnel
     let mut tunnel_connect_ids = HashMap::new();
     let mut tunnel_disconnect_ids = HashMap::new();
+    let mut tunnel_open_web_ids: HashMap<String, MenuId> = HashMap::new();
     let mut tunnel_edit_ids = HashMap::new();
     let mut tunnel_remove_ids = HashMap::new();
     
@@ -53,6 +55,14 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager
                 let disconnect_id = disconnect_item.id().clone();
                 tunnel_disconnect_ids.insert(tunnel.name.clone(), disconnect_id);
                 tunnel_submenu.append(&disconnect_item)?;
+                
+                // Add "Open Web" button when connected
+                if status == TunnelStatus::Connected {
+                    let open_web_item = MenuItem::new("Open Web", true, None);
+                    let open_web_id = open_web_item.id().clone();
+                    tunnel_open_web_ids.insert(tunnel.name.clone(), open_web_id);
+                    tunnel_submenu.append(&open_web_item)?;
+                }
             }
         }
         
@@ -118,6 +128,7 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager
         create: create_id,
         tunnel_connect: tunnel_connect_ids,
         tunnel_disconnect: tunnel_disconnect_ids,
+        tunnel_open_web: tunnel_open_web_ids,
         tunnel_edit: tunnel_edit_ids,
         tunnel_remove: tunnel_remove_ids,
     }))
@@ -136,6 +147,7 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
     // Add tunnels with submenu for each tunnel
     let mut tunnel_connect_ids = HashMap::new();
     let mut tunnel_disconnect_ids = HashMap::new();
+    let mut tunnel_open_web_ids: HashMap<String, MenuId> = HashMap::new();
     let mut tunnel_edit_ids = HashMap::new();
     let mut tunnel_remove_ids = HashMap::new();
     
@@ -162,6 +174,14 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
                 let disconnect_id = disconnect_item.id().clone();
                 tunnel_disconnect_ids.insert(tunnel.name.clone(), disconnect_id);
                 tunnel_submenu.append(&disconnect_item)?;
+                
+                // Add "Open Web" button when connected
+                if status == TunnelStatus::Connected {
+                    let open_web_item = MenuItem::new("Open Web", true, None);
+                    let open_web_id = open_web_item.id().clone();
+                    tunnel_open_web_ids.insert(tunnel.name.clone(), open_web_id);
+                    tunnel_submenu.append(&open_web_item)?;
+                }
             }
         }
         
@@ -208,6 +228,7 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
         create: create_id,
         tunnel_connect: tunnel_connect_ids,
         tunnel_disconnect: tunnel_disconnect_ids,
+        tunnel_open_web: tunnel_open_web_ids,
         tunnel_edit: tunnel_edit_ids,
         tunnel_remove: tunnel_remove_ids,
     })

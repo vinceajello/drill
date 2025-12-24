@@ -53,6 +53,9 @@ rfd = "0.15"
 # Cross-platform desktop notifications
 notify-rust = "4"
 
+# Open URLs in the default browser
+open = "5.0"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # macOS specific dependencies
 mac-notification-sys = "0.6.9"

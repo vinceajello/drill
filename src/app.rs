@@ -29,6 +29,7 @@ pub enum Message {
     OpenCreateTunnel,
     TunnelConnect(String),
     TunnelDisconnect(String),
+    TunnelOpenWeb(String),
     TunnelEdit(String),
     TunnelRemove(String),
     Quit,
@@ -174,6 +175,13 @@ impl App {
                         }
                     }
 
+                    // Check for tunnel open web events
+                    for (tunnel_name, open_web_id) in &menu_ids.tunnel_open_web {
+                        if event.id == *open_web_id {
+                            return self.update(Message::TunnelOpenWeb(tunnel_name.clone()));
+                        }
+                    }
+
                     // Check for tunnel edit events
                     for (tunnel_name, edit_id) in &menu_ids.tunnel_edit {
                         if event.id == *edit_id {
@@ -268,6 +276,26 @@ impl App {
                 }
                 drop(manager);
                 self.update(Message::UpdateTrayMenu)
+            }
+
+            Message::TunnelOpenWeb(tunnel_name) => {
+                log_print(&format!("Open web for tunnel '{}'", tunnel_name));
+                let manager = self.tunnel_manager.lock().unwrap();
+                if let Some(tunnel) = manager.get_tunnels().iter().find(|t| t.name == tunnel_name) {
+                    let url = format!("http://{}:{}", tunnel.local_host, tunnel.local_port);
+                    log_print(&format!("Opening URL: {}", url));
+                    drop(manager);
+                    
+                    // Open the browser
+                    if let Err(e) = open::that(&url) {
+                        log_print(&format!("Error opening browser: {}", e));
+                        notifications::notify_tunnel_error(&tunnel_name, &format!("Failed to open browser: {}", e));
+                    }
+                } else {
+                    drop(manager);
+                    log_print(&format!("Tunnel '{}' not found", tunnel_name));
+                }
+                Task::none()
             }
 
             Message::TunnelEdit(tunnel_name) => {
