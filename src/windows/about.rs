@@ -1,4 +1,4 @@
-use iced::widget::{column, container, text, Column};
+use iced::widget::{column, container, text, Column, Image};
 use iced::{Center, Element, Length};
 
 #[derive(Debug, Clone)]
@@ -6,8 +6,13 @@ pub enum Message {
 }
 
 pub fn view<'a>() -> Element<'a, Message> {
+    // Load the icon
+    let icon_bytes = include_bytes!("../../resources/icon.png");
+    let icon_handle = iced::widget::image::Handle::from_bytes(icon_bytes.as_slice());
 
     let content: Column<'a, Message> = column![
+        Image::new(icon_handle).width(64).height(64),
+        text("").size(4),
         text("Drill").size(24),
         text("Version 0.1.0").size(14),
         text("").size(8),

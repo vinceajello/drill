@@ -37,27 +37,27 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager
     for tunnel in tunnels {
         // Get current status
         let status = manager.get_tunnel_status(&tunnel.name);
-        let display_name = get_tunnel_display_name(&tunnel.name, status);
+        let display_name = get_tunnel_display_name(&tunnel.name, status.clone());
         
         // Create submenu for each tunnel with status indicator
         let tunnel_submenu = Submenu::new(&display_name, true);
         
         // Only show Connect if not connected, only show Disconnect if connected
-        match status {
-            TunnelStatus::Disconnected | TunnelStatus::Error => {
+        match &status {
+            TunnelStatus::Disconnected | TunnelStatus::Error { .. } => {
                 let connect_item = MenuItem::new("Connect", true, None);
                 let connect_id = connect_item.id().clone();
                 tunnel_connect_ids.insert(tunnel.name.clone(), connect_id);
                 tunnel_submenu.append(&connect_item)?;
             },
-            TunnelStatus::Connecting | TunnelStatus::Connected => {
+            TunnelStatus::Connecting | TunnelStatus::Connected { .. } | TunnelStatus::Reconnecting { .. } => {
                 let disconnect_item = MenuItem::new("Disconnect", true, None);
                 let disconnect_id = disconnect_item.id().clone();
                 tunnel_disconnect_ids.insert(tunnel.name.clone(), disconnect_id);
                 tunnel_submenu.append(&disconnect_item)?;
                 
                 // Add "Open Web" button when connected
-                if status == TunnelStatus::Connected {
+                if matches!(status, TunnelStatus::Connected { .. }) {
                     let open_web_item = MenuItem::new("Open Web", true, None);
                     let open_web_id = open_web_item.id().clone();
                     tunnel_open_web_ids.insert(tunnel.name.clone(), open_web_id);
@@ -67,7 +67,7 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager
         }
         
         // Add Edit option (disabled when connected)
-        let is_connected = matches!(status, TunnelStatus::Connecting | TunnelStatus::Connected);
+        let is_connected = matches!(status, TunnelStatus::Connecting | TunnelStatus::Connected { .. } | TunnelStatus::Reconnecting { .. });
         let edit_item = MenuItem::new("Edit", !is_connected, None);
         let edit_id = edit_item.id().clone();
         tunnel_edit_ids.insert(tunnel.name.clone(), edit_id);
@@ -156,27 +156,27 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
     for tunnel in tunnels {
         // Get current status
         let status = manager.get_tunnel_status(&tunnel.name);
-        let display_name = get_tunnel_display_name(&tunnel.name, status);
+        let display_name = get_tunnel_display_name(&tunnel.name, status.clone());
         
         // Create submenu for each tunnel with status indicator
         let tunnel_submenu = Submenu::new(&display_name, true);
         
         // Only show Connect if not connected, only show Disconnect if connected
-        match status {
-            TunnelStatus::Disconnected | TunnelStatus::Error => {
+        match &status {
+            TunnelStatus::Disconnected | TunnelStatus::Error { .. } => {
                 let connect_item = MenuItem::new("Connect", true, None);
                 let connect_id = connect_item.id().clone();
                 tunnel_connect_ids.insert(tunnel.name.clone(), connect_id);
                 tunnel_submenu.append(&connect_item)?;
             },
-            TunnelStatus::Connecting | TunnelStatus::Connected => {
+            TunnelStatus::Connecting | TunnelStatus::Connected { .. } | TunnelStatus::Reconnecting { .. } => {
                 let disconnect_item = MenuItem::new("Disconnect", true, None);
                 let disconnect_id = disconnect_item.id().clone();
                 tunnel_disconnect_ids.insert(tunnel.name.clone(), disconnect_id);
                 tunnel_submenu.append(&disconnect_item)?;
                 
                 // Add "Open Web" button when connected
-                if status == TunnelStatus::Connected {
+                if matches!(status, TunnelStatus::Connected { .. }) {
                     let open_web_item = MenuItem::new("Open Web", true, None);
                     let open_web_id = open_web_item.id().clone();
                     tunnel_open_web_ids.insert(tunnel.name.clone(), open_web_id);
@@ -186,7 +186,7 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
         }
         
         // Add Edit option (disabled when connected)
-        let is_connected = matches!(status, TunnelStatus::Connecting | TunnelStatus::Connected);
+        let is_connected = matches!(status, TunnelStatus::Connecting | TunnelStatus::Connected { .. } | TunnelStatus::Reconnecting { .. });
         let edit_item = MenuItem::new("Edit", !is_connected, None);
         let edit_id = edit_item.id().clone();
         tunnel_edit_ids.insert(tunnel.name.clone(), edit_id);
@@ -239,8 +239,9 @@ pub fn get_tunnel_display_name(name: &str, status: TunnelStatus) -> String {
     let indicator = match status {
         TunnelStatus::Disconnected => "○ ",  // Empty circle (gray/disconnected)
         TunnelStatus::Connecting => "◐ ",   // Half-filled circle (connecting)
-        TunnelStatus::Connected => "● ",    // Filled circle (connected/green)
-        TunnelStatus::Error => "✗ ",        // X mark (error/red)
+        TunnelStatus::Connected { .. } => "● ",    // Filled circle (connected/green)
+        TunnelStatus::Error { .. } => "✗ ",        // X mark (error/red)
+        TunnelStatus::Reconnecting { .. } => "↻ ",  // Refresh/reconnecting
     };
     format!("{}{}", indicator, name)
 }

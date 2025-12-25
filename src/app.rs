@@ -2,7 +2,7 @@ use crate::config;
 use crate::logs::log_print;
 use crate::notifications;
 use crate::systemtray::{self, TrayMenuIds};
-use crate::tunnels::TunnelManager;
+use crate::tunnels::{TunnelManager, StatusUpdate};
 use crate::windows::{self, WindowType};
 use iced::futures::SinkExt;
 use iced::window;
@@ -12,6 +12,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tray_icon::menu::MenuEvent;
 use tray_icon::TrayIcon;
+
+// Global status receiver - we'll use a once_cell for this
+static STATUS_RECEIVER: once_cell::sync::OnceCell<Arc<Mutex<tokio::sync::mpsc::UnboundedReceiver<StatusUpdate>>>> = once_cell::sync::OnceCell::new();
 
 pub struct App {
     windows: BTreeMap<window::Id, WindowType>,
@@ -33,6 +36,9 @@ pub enum Message {
     TunnelEdit(String),
     TunnelRemove(String),
     Quit,
+
+    // Tunnel status monitoring
+    TunnelStatusUpdate(StatusUpdate),
 
     // Window events
     WindowOpened(window::Id, WindowType),
@@ -115,6 +121,14 @@ impl App {
         // Create tunnel manager
         let mut tunnel_manager = TunnelManager::new();
         tunnel_manager.set_tunnels(tunnels.clone());
+        
+        // Create status channel
+        let (status_tx, status_rx) = tokio::sync::mpsc::unbounded_channel();
+        tunnel_manager.set_status_channel(status_tx);
+        
+        // Store the receiver globally
+        let _ = STATUS_RECEIVER.set(Arc::new(Mutex::new(status_rx)));
+        
         let tunnel_manager = Arc::new(Mutex::new(tunnel_manager));
 
         // Initialize system tray
@@ -236,6 +250,29 @@ impl App {
                         WindowType::new_create_tunnel(),
                     ))
                 })
+            }
+
+            Message::TunnelStatusUpdate(update) => {
+                match update {
+                    StatusUpdate::Connecting(tunnel_name) => {
+                        log_print(&format!("Tunnel '{}' is connecting...", tunnel_name));
+                    }
+                    StatusUpdate::Connected(tunnel_name) => {
+                        log_print(&format!("Tunnel '{}' connected successfully", tunnel_name));
+                        notifications::notify_tunnel_connected(&tunnel_name);
+                        return self.update(Message::UpdateTrayMenu);
+                    }
+                    StatusUpdate::Error(tunnel_name, error) => {
+                        log_print(&format!("Tunnel '{}' error: {}", tunnel_name, error));
+                        notifications::notify_tunnel_error(&tunnel_name, &error.to_string());
+                        return self.update(Message::UpdateTrayMenu);
+                    }
+                    StatusUpdate::Disconnected(tunnel_name) => {
+                        log_print(&format!("Tunnel '{}' disconnected", tunnel_name));
+                        return self.update(Message::UpdateTrayMenu);
+                    }
+                }
+                Task::none()
             }
 
             Message::TunnelConnect(tunnel_name) => {
@@ -1031,8 +1068,34 @@ impl App {
                 }
             })
         ).map(Message::TrayMenuEvent);
+        
+        // Tunnel status monitoring subscription
+        struct TunnelStatusMonitor;
+        
+        let status_subscription = Subscription::run_with_id(
+            std::any::TypeId::of::<TunnelStatusMonitor>(),
+            iced::stream::channel(100, |mut output| async move {
+                loop {
+                    // Try to get the receiver
+                    if let Some(receiver_arc) = STATUS_RECEIVER.get() {
+                        // Try to receive without holding the lock across await
+                        let update_opt = {
+                            let mut receiver = receiver_arc.lock().unwrap();
+                            receiver.try_recv().ok()
+                        };
+                        
+                        if let Some(update) = update_opt {
+                            let _ = output.send(update).await;
+                        }
+                    }
+                    
+                    // Small delay to avoid busy-waiting
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                }
+            })
+        ).map(Message::TunnelStatusUpdate);
 
-        Subscription::batch(vec![window_events, tray_subscription])
+        Subscription::batch(vec![window_events, tray_subscription, status_subscription])
     }
 
     // Helper methods for iced::daemon function references
