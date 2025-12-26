@@ -24,6 +24,20 @@ pub struct App {
     menu_ids: Option<TrayMenuIds>,
 }
 
+/// Identifies which field in the tunnel form was changed
+#[derive(Debug, Clone)]
+pub enum TunnelFormField {
+    Name(String),
+    LocalHost(String),
+    LocalPort(String),
+    RemoteHost(String),
+    RemotePort(String),
+    SshUser(String),
+    SshHost(String),
+    SshPort(String),
+    PrivateKey(String),
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     // Tray menu events
@@ -44,38 +58,12 @@ pub enum Message {
     WindowOpened(window::Id, WindowType),
     WindowClosed(window::Id),
 
-    // About window messages
-    //AboutClose,
-
-    // Create tunnel window messages
-    CreateTunnelNameChanged(String),
-    CreateTunnelLocalHostChanged(String),
-    CreateTunnelLocalPortChanged(String),
-    CreateTunnelRemoteHostChanged(String),
-    CreateTunnelRemotePortChanged(String),
-    CreateTunnelSshUserChanged(String),
-    CreateTunnelSshHostChanged(String),
-    CreateTunnelSshPortChanged(String),
-    CreateTunnelPrivateKeyChanged(String),
-    CreateTunnelBrowsePrivateKey,
-    CreateTunnelTest(window::Id),
-    CreateTunnelCreate(window::Id),
-    CreateTunnelCancel(window::Id),
-
-    // Edit tunnel window messages
-    EditTunnelNameChanged(String),
-    EditTunnelLocalHostChanged(String),
-    EditTunnelLocalPortChanged(String),
-    EditTunnelRemoteHostChanged(String),
-    EditTunnelRemotePortChanged(String),
-    EditTunnelSshUserChanged(String),
-    EditTunnelSshHostChanged(String),
-    EditTunnelSshPortChanged(String),
-    EditTunnelPrivateKeyChanged(String),
-    EditTunnelBrowsePrivateKey,
-    EditTunnelTest(window::Id),
-    EditTunnelSave(window::Id),
-    EditTunnelCancel(window::Id),
+    // Unified tunnel form messages (handles both create and edit)
+    TunnelFormFieldChanged(window::Id, TunnelFormField),
+    TunnelFormBrowsePrivateKey(window::Id),
+    TunnelFormTest(window::Id),
+    TunnelFormSubmit(window::Id),
+    TunnelFormCancel(window::Id),
 
     // Internal
     UpdateTrayMenu,
@@ -157,60 +145,7 @@ impl App {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::TrayMenuEvent(event) => {
-                log_print(&format!("Received tray menu event: {:?}", event.id));
-                
-                if let Some(menu_ids) = &self.menu_ids {
-                    // Check for Create action
-                    if event.id == menu_ids.create {
-                        return self.update(Message::OpenCreateTunnel);
-                    }
-
-                    // Check for About action
-                    if event.id == menu_ids.about {
-                        return self.update(Message::OpenAbout);
-                    }
-
-                    // Check for Quit action
-                    if event.id == menu_ids.quit {
-                        return self.update(Message::Quit);
-                    }
-
-                    // Check for tunnel connect events
-                    for (tunnel_name, connect_id) in &menu_ids.tunnel_connect {
-                        if event.id == *connect_id {
-                            return self.update(Message::TunnelConnect(tunnel_name.clone()));
-                        }
-                    }
-
-                    // Check for tunnel disconnect events
-                    for (tunnel_name, disconnect_id) in &menu_ids.tunnel_disconnect {
-                        if event.id == *disconnect_id {
-                            return self.update(Message::TunnelDisconnect(tunnel_name.clone()));
-                        }
-                    }
-
-                    // Check for tunnel open web events
-                    for (tunnel_name, open_web_id) in &menu_ids.tunnel_open_web {
-                        if event.id == *open_web_id {
-                            return self.update(Message::TunnelOpenWeb(tunnel_name.clone()));
-                        }
-                    }
-
-                    // Check for tunnel edit events
-                    for (tunnel_name, edit_id) in &menu_ids.tunnel_edit {
-                        if event.id == *edit_id {
-                            return self.update(Message::TunnelEdit(tunnel_name.clone()));
-                        }
-                    }
-
-                    // Check for tunnel remove events
-                    for (tunnel_name, remove_id) in &menu_ids.tunnel_remove {
-                        if event.id == *remove_id {
-                            return self.update(Message::TunnelRemove(tunnel_name.clone()));
-                        }
-                    }
-                }
-                Task::none()
+                self.handle_tray_menu_event(event)
             }
 
             Message::OpenAbout => {
@@ -415,458 +350,72 @@ impl App {
                 Task::none()
             }
 
-            // Message::AboutClose => {
-            //     // Find the About window and close it
-            //     let window_id = self
-            //         .windows
-            //         .iter()
-            //         .find_map(|(id, win_type)| match win_type {
-            //             WindowType::About => Some(*id),
-            //             _ => None,
-            //         });
-
-            //     if let Some(id) = window_id {
-            //         window::close(id)
-            //     } else {
-            //         Task::none()
-            //     }
-            // }
-
-            Message::CreateTunnelNameChanged(value) => {
-                self.update_create_tunnel_field(|ct| {
-                    if let WindowType::CreateTunnel { name, .. } = ct {
-                        *name = value.clone();
-                    }
-                });
+            // Unified tunnel form field update handler
+            Message::TunnelFormFieldChanged(window_id, field) => {
+                self.update_tunnel_form_field(window_id, field);
                 Task::none()
             }
 
-            Message::CreateTunnelLocalHostChanged(value) => {
-                self.update_create_tunnel_field(|ct| {
-                    if let WindowType::CreateTunnel { local_host, .. } = ct {
-                        *local_host = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::CreateTunnelLocalPortChanged(value) => {
-                self.update_create_tunnel_field(|ct| {
-                    if let WindowType::CreateTunnel { local_port, .. } = ct {
-                        *local_port = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::CreateTunnelRemoteHostChanged(value) => {
-                self.update_create_tunnel_field(|ct| {
-                    if let WindowType::CreateTunnel { remote_host, .. } = ct {
-                        *remote_host = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::CreateTunnelRemotePortChanged(value) => {
-                self.update_create_tunnel_field(|ct| {
-                    if let WindowType::CreateTunnel { remote_port, .. } = ct {
-                        *remote_port = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::CreateTunnelSshUserChanged(value) => {
-                self.update_create_tunnel_field(|ct| {
-                    if let WindowType::CreateTunnel { ssh_user, .. } = ct {
-                        *ssh_user = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::CreateTunnelSshHostChanged(value) => {
-                self.update_create_tunnel_field(|ct| {
-                    if let WindowType::CreateTunnel { ssh_host, .. } = ct {
-                        *ssh_host = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::CreateTunnelSshPortChanged(value) => {
-                self.update_create_tunnel_field(|ct| {
-                    if let WindowType::CreateTunnel { ssh_port, .. } = ct {
-                        *ssh_port = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::CreateTunnelPrivateKeyChanged(value) => {
-                self.update_create_tunnel_field(|ct| {
-                    if let WindowType::CreateTunnel { private_key, .. } = ct {
-                        *private_key = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::CreateTunnelBrowsePrivateKey => {
+            Message::TunnelFormBrowsePrivateKey(window_id) => {
                 if let Some(path) = windows::create_tunnel::browse_for_private_key() {
-                    self.update_create_tunnel_field(|ct| {
-                        if let WindowType::CreateTunnel { private_key, .. } = ct {
-                            *private_key = path.clone();
-                        }
-                    });
+                    self.update_tunnel_form_field(
+                        window_id,
+                        TunnelFormField::PrivateKey(path),
+                    );
                 }
                 Task::none()
             }
 
-            Message::CreateTunnelTest(window_id) => {
+            Message::TunnelFormTest(window_id) => {
                 // Get the window data and test the connection
-                if let Some(WindowType::CreateTunnel {
-                    name,
-                    local_host,
-                    local_port,
-                    remote_host,
-                    remote_port,
-                    ssh_user,
-                    ssh_host,
-                    ssh_port,
-                    private_key,
-                    error_message,
-                    test_message,
-                }) = self.windows.get_mut(&window_id)
-                {
-                    // Clear previous messages
-                    *error_message = None;
-                    *test_message = None;
+                let window_type = self.windows.get_mut(&window_id);
+                if window_type.is_none() {
+                    return Task::none();
+                }
 
-                    // Validate basic fields before testing
-                    match windows::create_tunnel::validate_and_create_tunnel(
-                        name,
-                        local_host,
-                        local_port,
-                        remote_host,
-                        remote_port,
-                        ssh_user,
-                        ssh_host,
-                        ssh_port,
-                        private_key,
-                    ) {
-                        Ok(tunnel) => {
-                            // Test the SSH connection
-                            match TunnelManager::test_tunnel(&tunnel) {
-                                Ok(success_msg) => {
-                                    *test_message = Some(success_msg);
+                let extra_height = match window_type.unwrap() {
+                    WindowType::CreateTunnel {
+                        name, local_host, local_port, remote_host, remote_port,
+                        ssh_user, ssh_host, ssh_port, private_key,
+                        error_message, test_message,
+                    } | WindowType::EditTunnel {
+                        name, local_host, local_port, remote_host, remote_port,
+                        ssh_user, ssh_host, ssh_port, private_key,
+                        error_message, test_message, ..
+                    } => {
+                        // Clear previous messages
+                        *error_message = None;
+                        *test_message = None;
+
+                        // Validate and test
+                        match windows::create_tunnel::validate_and_create_tunnel(
+                            name, local_host, local_port, remote_host, remote_port,
+                            ssh_user, ssh_host, ssh_port, private_key,
+                        ) {
+                            Ok(tunnel) => {
+                                match TunnelManager::test_tunnel(&tunnel) {
+                                    Ok(success_msg) => *test_message = Some(success_msg),
+                                    Err(err_msg) => *test_message = Some(err_msg),
                                 }
-                                Err(err_msg) => {
-                                    *test_message = Some(err_msg);
-                                }
+                                test_message.as_ref().map(|msg| (msg.len() / 60).max(1) as f32 * 20.0 + 40.0).unwrap_or(0.0)
                             }
-                            // Resize window to accommodate message
-                            // Calculate extra height based on message length
-                            let extra_height = test_message.as_ref().map(|msg| {
-                                let lines = (msg.len() / 60).max(1) as f32;
-                                lines * 20.0 + 40.0
-                            }).unwrap_or(0.0);
-                            return window::resize(window_id, Size::new(500.0, 640.0 + extra_height));
-                        }
-                        Err(err) => {
-                            *error_message = Some(err);
-                            // Resize window to accommodate error message
-                            let extra_height = error_message.as_ref().map(|msg| {
-                                let lines = (msg.len() / 60).max(1) as f32;
-                                lines * 20.0 + 40.0
-                            }).unwrap_or(0.0);
-                            return window::resize(window_id, Size::new(500.0, 640.0 + extra_height));
-                        }
-                    }
-                }
-                Task::none()
-            }
-
-            Message::CreateTunnelCreate(window_id) => {
-                // Get the window data
-                if let Some(WindowType::CreateTunnel {
-                    name,
-                    local_host,
-                    local_port,
-                    remote_host,
-                    remote_port,
-                    ssh_user,
-                    ssh_host,
-                    ssh_port,
-                    private_key,
-                    error_message,
-                    test_message: _,
-                }) = self.windows.get_mut(&window_id)
-                {
-                    match windows::create_tunnel::validate_and_create_tunnel(
-                        name,
-                        local_host,
-                        local_port,
-                        remote_host,
-                        remote_port,
-                        ssh_user,
-                        ssh_host,
-                        ssh_port,
-                        private_key,
-                    ) {
-                        Ok(tunnel) => {
-                            log_print(&format!("Saving new tunnel: {}", tunnel.name));
-
-                            // Add tunnel to manager
-                            let mut manager = self.tunnel_manager.lock().unwrap();
-                            manager.add_tunnel(tunnel.clone());
-
-                            // Save to file
-                            if let Err(e) = TunnelManager::save_tunnels(
-                                &self.tunnels_file,
-                                manager.get_tunnels(),
-                            ) {
-                                log_print(&format!("Error saving tunnels: {}", e));
-                            } else {
-                                notifications::notify_tunnel_created(&tunnel.name);
+                            Err(err) => {
+                                *error_message = Some(err);
+                                error_message.as_ref().map(|msg| (msg.len() / 60).max(1) as f32 * 20.0 + 40.0).unwrap_or(0.0)
                             }
-                            drop(manager);
-
-                            // Update tray menu and close window
-                            return Task::batch(vec![
-                                self.update(Message::UpdateTrayMenu),
-                                window::close(window_id),
-                            ]);
-                        }
-                        Err(err) => {
-                            *error_message = Some(err);
-                            // Resize window to accommodate error message
-                            let extra_height = error_message.as_ref().map(|msg| {
-                                let lines = (msg.len() / 60).max(1) as f32;
-                                lines * 20.0 + 40.0
-                            }).unwrap_or(0.0);
-                            return window::resize(window_id, Size::new(500.0, 640.0 + extra_height));
                         }
                     }
-                }
-                Task::none()
+                    _ => return Task::none(),
+                };
+
+                window::resize(window_id, Size::new(500.0, 640.0 + extra_height))
             }
 
-            Message::CreateTunnelCancel(window_id) => window::close(window_id),
-
-            // Edit Tunnel message handlers
-            Message::EditTunnelNameChanged(value) => {
-                self.update_edit_tunnel_field(|et| {
-                    if let WindowType::EditTunnel { name, .. } = et {
-                        *name = value.clone();
-                    }
-                });
-                Task::none()
+            Message::TunnelFormSubmit(window_id) => {
+                self.handle_tunnel_form_submit(window_id)
             }
 
-            Message::EditTunnelLocalHostChanged(value) => {
-                self.update_edit_tunnel_field(|et| {
-                    if let WindowType::EditTunnel { local_host, .. } = et {
-                        *local_host = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::EditTunnelLocalPortChanged(value) => {
-                self.update_edit_tunnel_field(|et| {
-                    if let WindowType::EditTunnel { local_port, .. } = et {
-                        *local_port = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::EditTunnelRemoteHostChanged(value) => {
-                self.update_edit_tunnel_field(|et| {
-                    if let WindowType::EditTunnel { remote_host, .. } = et {
-                        *remote_host = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::EditTunnelRemotePortChanged(value) => {
-                self.update_edit_tunnel_field(|et| {
-                    if let WindowType::EditTunnel { remote_port, .. } = et {
-                        *remote_port = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::EditTunnelSshUserChanged(value) => {
-                self.update_edit_tunnel_field(|et| {
-                    if let WindowType::EditTunnel { ssh_user, .. } = et {
-                        *ssh_user = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::EditTunnelSshHostChanged(value) => {
-                self.update_edit_tunnel_field(|et| {
-                    if let WindowType::EditTunnel { ssh_host, .. } = et {
-                        *ssh_host = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::EditTunnelSshPortChanged(value) => {
-                self.update_edit_tunnel_field(|et| {
-                    if let WindowType::EditTunnel { ssh_port, .. } = et {
-                        *ssh_port = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::EditTunnelPrivateKeyChanged(value) => {
-                self.update_edit_tunnel_field(|et| {
-                    if let WindowType::EditTunnel { private_key, .. } = et {
-                        *private_key = value.clone();
-                    }
-                });
-                Task::none()
-            }
-
-            Message::EditTunnelBrowsePrivateKey => {
-                if let Some(path) = windows::create_tunnel::browse_for_private_key() {
-                    self.update_edit_tunnel_field(|et| {
-                        if let WindowType::EditTunnel { private_key, .. } = et {
-                            *private_key = path.clone();
-                        }
-                    });
-                }
-                Task::none()
-            }
-
-            Message::EditTunnelTest(window_id) => {
-                // Get the window data and test the connection
-                if let Some(WindowType::EditTunnel {
-                    tunnel_id: _,
-                    name,
-                    local_host,
-                    local_port,
-                    remote_host,
-                    remote_port,
-                    ssh_user,
-                    ssh_host,
-                    ssh_port,
-                    private_key,
-                    error_message,
-                    test_message,
-                }) = self.windows.get_mut(&window_id)
-                {
-                    // Clear previous messages
-                    *error_message = None;
-                    *test_message = None;
-
-                    let test_tunnel = crate::tunnels::Tunnel {
-                        id: String::new(), // Not needed for testing
-                        name: name.clone(),
-                        local_host: local_host.clone(),
-                        local_port: local_port.clone(),
-                        remote_host: remote_host.clone(),
-                        remote_port: remote_port.clone(),
-                        ssh_user: ssh_user.clone(),
-                        ssh_host: ssh_host.clone(),
-                        ssh_port: ssh_port.clone(),
-                        private_key: private_key.clone(),
-                    };
-
-                    match TunnelManager::test_tunnel(&test_tunnel) {
-                        Ok(msg) => {
-                            *test_message = Some(msg);
-                        }
-                        Err(err) => {
-                            *test_message = Some(err);
-                        }
-                    }
-                }
-                Task::none()
-            }
-
-            Message::EditTunnelSave(window_id) => {
-                // Get the window data
-                if let Some(WindowType::EditTunnel {
-                    tunnel_id,
-                    name,
-                    local_host,
-                    local_port,
-                    remote_host,
-                    remote_port,
-                    ssh_user,
-                    ssh_host,
-                    ssh_port,
-                    private_key,
-                    error_message,
-                    test_message: _,
-                }) = self.windows.get_mut(&window_id)
-                {
-                    match windows::create_tunnel::validate_and_create_tunnel(
-                        name,
-                        local_host,
-                        local_port,
-                        remote_host,
-                        remote_port,
-                        ssh_user,
-                        ssh_host,
-                        ssh_port,
-                        private_key,
-                    ) {
-                        Ok(mut tunnel) => {
-                            log_print(&format!("Updating tunnel: {}", tunnel.name));
-
-                            // Keep the original tunnel ID
-                            tunnel.id = tunnel_id.clone();
-
-                            // Update tunnel in manager
-                            let mut manager = self.tunnel_manager.lock().unwrap();
-                            if let Err(e) = manager.update_tunnel(tunnel_id, tunnel.clone()) {
-                                log_print(&format!("Error updating tunnel: {}", e));
-                                *error_message = Some(format!("Error updating tunnel: {}", e));
-                                drop(manager);
-                                return Task::none();
-                            }
-
-                            // Save to file
-                            if let Err(e) = TunnelManager::save_tunnels(
-                                &self.tunnels_file,
-                                manager.get_tunnels(),
-                            ) {
-                                log_print(&format!("Error saving tunnels: {}", e));
-                            }
-                            drop(manager);
-
-                            // Update tray menu and close window
-                            return Task::batch(vec![
-                                self.update(Message::UpdateTrayMenu),
-                                window::close(window_id),
-                            ]);
-                        }
-                        Err(err) => {
-                            *error_message = Some(err);
-                            // Resize window to accommodate error message
-                            let extra_height = error_message.as_ref().map(|msg| {
-                                let lines = (msg.len() / 60).max(1) as f32;
-                                lines * 20.0 + 40.0
-                            }).unwrap_or(0.0);
-                            return window::resize(window_id, Size::new(500.0, 640.0 + extra_height));
-                        }
-                    }
-                }
-                Task::none()
-            }
-
-            Message::EditTunnelCancel(window_id) => window::close(window_id),
+            Message::TunnelFormCancel(window_id) => window::close(window_id),
 
             Message::UpdateTrayMenu => {
                 if let (Some(tray_icon), Some(_)) = (&mut self.tray_icon, &self.menu_ids) {
@@ -893,148 +442,31 @@ impl App {
         if let Some(window_type) = self.windows.get(&window_id) {
             match window_type {
                 WindowType::About => {
-                    windows::about::view().map(|msg| match msg {
-                        // windows::about::Message::Close => Message::AboutClose,
-                    })
+                    windows::about::view().map(|msg| match msg {})
                 }
                 WindowType::CreateTunnel {
-                    name,
-                    local_host,
-                    local_port,
-                    remote_host,
-                    remote_port,
-                    ssh_user,
-                    ssh_host,
-                    ssh_port,
-                    private_key,
-                    error_message,
-                    test_message,
-                } => windows::create_tunnel::view(
-                    false, // is_edit_mode
-                    name,
-                    local_host,
-                    local_port,
-                    remote_host,
-                    remote_port,
-                    ssh_user,
-                    ssh_host,
-                    ssh_port,
-                    private_key,
-                    error_message,
-                    test_message,
-                )
-                .map(move |msg| match msg {
-                    windows::create_tunnel::Message::NameChanged(v) => {
-                        Message::CreateTunnelNameChanged(v)
-                    }
-                    windows::create_tunnel::Message::LocalHostChanged(v) => {
-                        Message::CreateTunnelLocalHostChanged(v)
-                    }
-                    windows::create_tunnel::Message::LocalPortChanged(v) => {
-                        Message::CreateTunnelLocalPortChanged(v)
-                    }
-                    windows::create_tunnel::Message::RemoteHostChanged(v) => {
-                        Message::CreateTunnelRemoteHostChanged(v)
-                    }
-                    windows::create_tunnel::Message::RemotePortChanged(v) => {
-                        Message::CreateTunnelRemotePortChanged(v)
-                    }
-                    windows::create_tunnel::Message::SshUserChanged(v) => {
-                        Message::CreateTunnelSshUserChanged(v)
-                    }
-                    windows::create_tunnel::Message::SshHostChanged(v) => {
-                        Message::CreateTunnelSshHostChanged(v)
-                    }
-                    windows::create_tunnel::Message::SshPortChanged(v) => {
-                        Message::CreateTunnelSshPortChanged(v)
-                    }
-                    windows::create_tunnel::Message::PrivateKeyChanged(v) => {
-                        Message::CreateTunnelPrivateKeyChanged(v)
-                    }
-                    windows::create_tunnel::Message::BrowsePrivateKey => {
-                        Message::CreateTunnelBrowsePrivateKey
-                    }
-                    windows::create_tunnel::Message::Test => {
-                        Message::CreateTunnelTest(window_id)
-                    }
-                    windows::create_tunnel::Message::Create => {
-                        Message::CreateTunnelCreate(window_id)
-                    }
-                    windows::create_tunnel::Message::Cancel => {
-                        Message::CreateTunnelCancel(window_id)
-                    }
-                }),
-                WindowType::EditTunnel {
-                    tunnel_id: _,
-                    name,
-                    local_host,
-                    local_port,
-                    remote_host,
-                    remote_port,
-                    ssh_user,
-                    ssh_host,
-                    ssh_port,
-                    private_key,
-                    error_message,
-                    test_message,
-                } => windows::create_tunnel::view(
-                    true, // is_edit_mode
-                    name,
-                    local_host,
-                    local_port,
-                    remote_host,
-                    remote_port,
-                    ssh_user,
-                    ssh_host,
-                    ssh_port,
-                    private_key,
-                    error_message,
-                    test_message,
-                )
-                .map(move |msg| match msg {
-                    windows::create_tunnel::Message::NameChanged(v) => {
-                        Message::EditTunnelNameChanged(v)
-                    }
-                    windows::create_tunnel::Message::LocalHostChanged(v) => {
-                        Message::EditTunnelLocalHostChanged(v)
-                    }
-                    windows::create_tunnel::Message::LocalPortChanged(v) => {
-                        Message::EditTunnelLocalPortChanged(v)
-                    }
-                    windows::create_tunnel::Message::RemoteHostChanged(v) => {
-                        Message::EditTunnelRemoteHostChanged(v)
-                    }
-                    windows::create_tunnel::Message::RemotePortChanged(v) => {
-                        Message::EditTunnelRemotePortChanged(v)
-                    }
-                    windows::create_tunnel::Message::SshUserChanged(v) => {
-                        Message::EditTunnelSshUserChanged(v)
-                    }
-                    windows::create_tunnel::Message::SshHostChanged(v) => {
-                        Message::EditTunnelSshHostChanged(v)
-                    }
-                    windows::create_tunnel::Message::SshPortChanged(v) => {
-                        Message::EditTunnelSshPortChanged(v)
-                    }
-                    windows::create_tunnel::Message::PrivateKeyChanged(v) => {
-                        Message::EditTunnelPrivateKeyChanged(v)
-                    }
-                    windows::create_tunnel::Message::BrowsePrivateKey => {
-                        Message::EditTunnelBrowsePrivateKey
-                    }
-                    windows::create_tunnel::Message::Test => {
-                        Message::EditTunnelTest(window_id)
-                    }
-                    windows::create_tunnel::Message::Create => {
-                        Message::EditTunnelSave(window_id)
-                    }
-                    windows::create_tunnel::Message::Cancel => {
-                        Message::EditTunnelCancel(window_id)
-                    }
-                }),
+                    name, local_host, local_port, remote_host, remote_port,
+                    ssh_user, ssh_host, ssh_port, private_key,
+                    error_message, test_message,
+                } | WindowType::EditTunnel {
+                    name, local_host, local_port, remote_host, remote_port,
+                    ssh_user, ssh_host, ssh_port, private_key,
+                    error_message, test_message, ..
+                } => {
+                    let is_edit_mode = matches!(window_type, WindowType::EditTunnel { .. });
+                    windows::create_tunnel::view(
+                        is_edit_mode,
+                        name, local_host, local_port,
+                        remote_host, remote_port,
+                        ssh_user, ssh_host, ssh_port,
+                        private_key,
+                        error_message,
+                        test_message,
+                    )
+                    .map(move |msg| self.map_tunnel_form_message(window_id, msg))
+                }
             }
         } else {
-            // No window found - this shouldn't happen
             iced::widget::text("Window not found").into()
         }
     }
@@ -1115,27 +547,201 @@ impl App {
         app.subscription()
     }
 
-    fn update_create_tunnel_field<F>(&mut self, updater: F)
-    where
-        F: Fn(&mut WindowType),
-    {
-        for window_type in self.windows.values_mut() {
-            if matches!(window_type, WindowType::CreateTunnel { .. }) {
-                updater(window_type);
-                break;
+    /// Handles tray menu events and dispatches appropriate messages
+    fn handle_tray_menu_event(&mut self, event: MenuEvent) -> Task<Message> {
+        log_print(&format!("Received tray menu event: {:?}", event.id));
+        
+        let Some(menu_ids) = &self.menu_ids else {
+            return Task::none();
+        };
+
+        // Check static menu items
+        if event.id == menu_ids.create {
+            return self.update(Message::OpenCreateTunnel);
+        }
+        if event.id == menu_ids.about {
+            return self.update(Message::OpenAbout);
+        }
+        if event.id == menu_ids.quit {
+            return self.update(Message::Quit);
+        }
+
+        // Check tunnel-specific menu items
+        for (tunnel_name, menu_id) in &menu_ids.tunnel_connect {
+            if event.id == *menu_id {
+                return self.update(Message::TunnelConnect(tunnel_name.clone()));
+            }
+        }
+        for (tunnel_name, menu_id) in &menu_ids.tunnel_disconnect {
+            if event.id == *menu_id {
+                return self.update(Message::TunnelDisconnect(tunnel_name.clone()));
+            }
+        }
+        for (tunnel_name, menu_id) in &menu_ids.tunnel_open_web {
+            if event.id == *menu_id {
+                return self.update(Message::TunnelOpenWeb(tunnel_name.clone()));
+            }
+        }
+        for (tunnel_name, menu_id) in &menu_ids.tunnel_edit {
+            if event.id == *menu_id {
+                return self.update(Message::TunnelEdit(tunnel_name.clone()));
+            }
+        }
+        for (tunnel_name, menu_id) in &menu_ids.tunnel_remove {
+            if event.id == *menu_id {
+                return self.update(Message::TunnelRemove(tunnel_name.clone()));
+            }
+        }
+
+        Task::none()
+    }
+
+    /// Maps tunnel form messages from the view to app messages with window ID
+    fn map_tunnel_form_message(&self, window_id: window::Id, msg: windows::create_tunnel::Message) -> Message {
+        match msg {
+            windows::create_tunnel::Message::NameChanged(v) => 
+                Message::TunnelFormFieldChanged(window_id, TunnelFormField::Name(v)),
+            windows::create_tunnel::Message::LocalHostChanged(v) => 
+                Message::TunnelFormFieldChanged(window_id, TunnelFormField::LocalHost(v)),
+            windows::create_tunnel::Message::LocalPortChanged(v) => 
+                Message::TunnelFormFieldChanged(window_id, TunnelFormField::LocalPort(v)),
+            windows::create_tunnel::Message::RemoteHostChanged(v) => 
+                Message::TunnelFormFieldChanged(window_id, TunnelFormField::RemoteHost(v)),
+            windows::create_tunnel::Message::RemotePortChanged(v) => 
+                Message::TunnelFormFieldChanged(window_id, TunnelFormField::RemotePort(v)),
+            windows::create_tunnel::Message::SshUserChanged(v) => 
+                Message::TunnelFormFieldChanged(window_id, TunnelFormField::SshUser(v)),
+            windows::create_tunnel::Message::SshHostChanged(v) => 
+                Message::TunnelFormFieldChanged(window_id, TunnelFormField::SshHost(v)),
+            windows::create_tunnel::Message::SshPortChanged(v) => 
+                Message::TunnelFormFieldChanged(window_id, TunnelFormField::SshPort(v)),
+            windows::create_tunnel::Message::PrivateKeyChanged(v) => 
+                Message::TunnelFormFieldChanged(window_id, TunnelFormField::PrivateKey(v)),
+            windows::create_tunnel::Message::BrowsePrivateKey => 
+                Message::TunnelFormBrowsePrivateKey(window_id),
+            windows::create_tunnel::Message::Test => 
+                Message::TunnelFormTest(window_id),
+            windows::create_tunnel::Message::Create => 
+                Message::TunnelFormSubmit(window_id),
+            windows::create_tunnel::Message::Cancel => 
+                Message::TunnelFormCancel(window_id),
+        }
+    }
+
+    /// Updates a form field in the tunnel form window
+    fn update_tunnel_form_field(&mut self, window_id: window::Id, field: TunnelFormField) {
+        if let Some(window_type) = self.windows.get_mut(&window_id) {
+            match window_type {
+                WindowType::CreateTunnel {
+                    name, local_host, local_port, remote_host, remote_port,
+                    ssh_user, ssh_host, ssh_port, private_key, ..
+                } | WindowType::EditTunnel {
+                    name, local_host, local_port, remote_host, remote_port,
+                    ssh_user, ssh_host, ssh_port, private_key, ..
+                } => {
+                    match field {
+                        TunnelFormField::Name(v) => *name = v,
+                        TunnelFormField::LocalHost(v) => *local_host = v,
+                        TunnelFormField::LocalPort(v) => *local_port = v,
+                        TunnelFormField::RemoteHost(v) => *remote_host = v,
+                        TunnelFormField::RemotePort(v) => *remote_port = v,
+                        TunnelFormField::SshUser(v) => *ssh_user = v,
+                        TunnelFormField::SshHost(v) => *ssh_host = v,
+                        TunnelFormField::SshPort(v) => *ssh_port = v,
+                        TunnelFormField::PrivateKey(v) => *private_key = v,
+                    }
+                }
+                _ => {}
             }
         }
     }
 
-    fn update_edit_tunnel_field<F>(&mut self, updater: F)
-    where
-        F: Fn(&mut WindowType),
-    {
-        for window_type in self.windows.values_mut() {
-            if matches!(window_type, WindowType::EditTunnel { .. }) {
-                updater(window_type);
-                break;
+    /// Handles tunnel form submission for both create and edit modes
+    fn handle_tunnel_form_submit(&mut self, window_id: window::Id) -> Task<Message> {
+        let window_type = self.windows.get_mut(&window_id);
+        if window_type.is_none() {
+            return Task::none();
+        }
+
+        match window_type.unwrap() {
+            WindowType::CreateTunnel {
+                name, local_host, local_port, remote_host, remote_port,
+                ssh_user, ssh_host, ssh_port, private_key,
+                error_message, ..
+            } => {
+                match windows::create_tunnel::validate_and_create_tunnel(
+                    name, local_host, local_port, remote_host, remote_port,
+                    ssh_user, ssh_host, ssh_port, private_key,
+                ) {
+                    Ok(tunnel) => {
+                        log_print(&format!("Saving new tunnel: {}", tunnel.name));
+
+                        let mut manager = self.tunnel_manager.lock().unwrap();
+                        manager.add_tunnel(tunnel.clone());
+
+                        if let Err(e) = TunnelManager::save_tunnels(&self.tunnels_file, manager.get_tunnels()) {
+                            log_print(&format!("Error saving tunnels: {}", e));
+                        } else {
+                            notifications::notify_tunnel_created(&tunnel.name);
+                        }
+                        drop(manager);
+
+                        Task::batch(vec![
+                            self.update(Message::UpdateTrayMenu),
+                            window::close(window_id),
+                        ])
+                    }
+                    Err(err) => {
+                        *error_message = Some(err);
+                        let extra_height = error_message.as_ref()
+                            .map(|msg| (msg.len() / 60).max(1) as f32 * 20.0 + 40.0)
+                            .unwrap_or(0.0);
+                        window::resize(window_id, Size::new(500.0, 640.0 + extra_height))
+                    }
+                }
             }
+            WindowType::EditTunnel {
+                tunnel_id, name, local_host, local_port, remote_host, remote_port,
+                ssh_user, ssh_host, ssh_port, private_key,
+                error_message, ..
+            } => {
+                match windows::create_tunnel::validate_and_create_tunnel(
+                    name, local_host, local_port, remote_host, remote_port,
+                    ssh_user, ssh_host, ssh_port, private_key,
+                ) {
+                    Ok(mut tunnel) => {
+                        log_print(&format!("Updating tunnel: {}", tunnel.name));
+
+                        tunnel.id = tunnel_id.clone();
+
+                        let mut manager = self.tunnel_manager.lock().unwrap();
+                        if let Err(e) = manager.update_tunnel(tunnel_id, tunnel.clone()) {
+                            log_print(&format!("Error updating tunnel: {}", e));
+                            *error_message = Some(format!("Error updating tunnel: {}", e));
+                            drop(manager);
+                            return Task::none();
+                        }
+
+                        if let Err(e) = TunnelManager::save_tunnels(&self.tunnels_file, manager.get_tunnels()) {
+                            log_print(&format!("Error saving tunnels: {}", e));
+                        }
+                        drop(manager);
+
+                        Task::batch(vec![
+                            self.update(Message::UpdateTrayMenu),
+                            window::close(window_id),
+                        ])
+                    }
+                    Err(err) => {
+                        *error_message = Some(err);
+                        let extra_height = error_message.as_ref()
+                            .map(|msg| (msg.len() / 60).max(1) as f32 * 20.0 + 40.0)
+                            .unwrap_or(0.0);
+                        window::resize(window_id, Size::new(500.0, 640.0 + extra_height))
+                    }
+                }
+            }
+            _ => Task::none(),
         }
     }
 }

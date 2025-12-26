@@ -11,29 +11,11 @@ use crate::logs::log_print;
 /// Custom error types for tunnel operations
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum TunnelError {
-    #[error("SSH connection failed: {0}")]
-    ConnectionFailed(String),
-    
-    #[error("Authentication failed: {0}")]
-    AuthenticationFailed(String),
-    
-    #[error("Network error: {0}")]
-    NetworkError(String),
-    
     #[error("Process spawn failed: {0}")]
     ProcessSpawnFailed(String),
     
     #[error("Tunnel unexpectedly terminated: {0}")]
     UnexpectedTermination(String),
-    
-    #[error("Connection timeout after {0} seconds")]
-    Timeout(u64),
-    
-    #[error("Configuration error: {0}")]
-    ConfigurationError(String),
-    
-    #[error("IO error: {0}")]
-    IoError(String),
 }
 
 /// Enhanced tunnel status with error details
@@ -48,20 +30,13 @@ pub enum TunnelStatus {
         error: String,
         occurred_at: std::time::SystemTime,
     },
+    #[allow(dead_code)]
     Reconnecting {
         attempt: u32,
     },
 }
 
-impl TunnelStatus {
-    pub fn is_active(&self) -> bool {
-        matches!(self, TunnelStatus::Connected { .. } | TunnelStatus::Connecting | TunnelStatus::Reconnecting { .. })
-    }
-    
-    pub fn is_error(&self) -> bool {
-        matches!(self, TunnelStatus::Error { .. })
-    }
-}
+
 
 /// Status update events from monitoring tasks
 #[derive(Debug, Clone)]
@@ -75,6 +50,7 @@ pub enum StatusUpdate {
 /// Information about an active tunnel process
 struct ActiveTunnel {
     process: Child,
+    #[allow(dead_code)]
     started_at: Instant,
     monitor_tx: Option<tokio::sync::oneshot::Sender<()>>, // Signal to stop monitoring
 }
