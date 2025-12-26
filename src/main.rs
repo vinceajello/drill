@@ -7,6 +7,7 @@ mod notifications;
 mod systemtray;
 mod tunnels;
 mod windows;
+mod error;
 
 use app::App;
 

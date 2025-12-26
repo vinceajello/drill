@@ -1,27 +1,29 @@
 use crate::config;
-use crate::logs::log_print;
+use crate::logs::Logger;
 use crate::notifications;
 use crate::systemtray::{self, TrayMenuIds};
 use crate::tunnels::{TunnelManager, StatusUpdate};
+use tokio::sync::broadcast;
 use crate::windows::{self, WindowType};
 use iced::futures::SinkExt;
 use iced::window;
 use iced::{Element, Size, Subscription, Task};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+// use std::sync::{Mutex};
 use tray_icon::menu::MenuEvent;
 use tray_icon::TrayIcon;
 
-// Global status receiver - we'll use a once_cell for this
-static STATUS_RECEIVER: once_cell::sync::OnceCell<Arc<Mutex<tokio::sync::mpsc::UnboundedReceiver<StatusUpdate>>>> = once_cell::sync::OnceCell::new();
+
 
 pub struct App {
     windows: BTreeMap<window::Id, WindowType>,
-    tunnel_manager: Arc<Mutex<TunnelManager>>,
+    tunnel_manager: TunnelManager,
     tunnels_file: PathBuf,
     tray_icon: Option<TrayIcon>,
     menu_ids: Option<TrayMenuIds>,
+    logger: Logger,
+    status_receiver: broadcast::Receiver<StatusUpdate>,
 }
 
 /// Identifies which field in the tunnel form was changed
@@ -71,29 +73,23 @@ pub enum Message {
 
 impl App {
     pub fn new() -> (Self, Task<Message>) {
-        log_print("Drill - Multi-Platform tunnel drilling Application");
-        log_print(&format!("Platform: {}", get_platform()));
-        log_print("");
-
-        // Initialize configuration
-        match config::init_config() {
-            Ok(config_path) => {
-                log_print(&format!(
-                    "Configuration loaded from: {}",
-                    config_path.display()
-                ));
-            }
+        let (config_path, mut logger): (std::path::PathBuf, crate::logs::Logger) = match config::init_config() {
+            Ok((config_path, logger)) => (config_path, logger),
             Err(e) => {
-                log_print(&format!("Error initializing configuration: {}", e));
+                println!("Error initializing configuration: {}", e);
                 std::process::exit(1);
             }
-        }
+        };
+        logger.log_print("Drill - Multi-Platform tunnel drilling Application");
+        logger.log_print(&format!("Platform: {}", get_platform()));
+        logger.log_print("");
+        logger.log_print(&format!("Configuration loaded from: {}", config_path.display()));
 
         // Load tunnels from the tunnels file
         let tunnels_file = match config::get_tunnels_file_path() {
             Ok(path) => path,
             Err(e) => {
-                log_print(&format!("Error getting tunnels file path: {}", e));
+                logger.log_print(&format!("Error getting tunnels file path: {}", e));
                 std::process::exit(1);
             }
         };
@@ -101,7 +97,7 @@ impl App {
         let tunnels = match TunnelManager::load_tunnels(&tunnels_file) {
             Ok(t) => t,
             Err(e) => {
-                log_print(&format!("Error loading tunnels: {}", e));
+                logger.log_print(&format!("Error loading tunnels: {}", e));
                 Vec::new()
             }
         };
@@ -109,26 +105,26 @@ impl App {
         // Create tunnel manager
         let mut tunnel_manager = TunnelManager::new();
         tunnel_manager.set_tunnels(tunnels.clone());
-        
         // Create status channel
-        let (status_tx, status_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (status_tx, status_rx) = broadcast::channel(100);
         tunnel_manager.set_status_channel(status_tx);
-        
-        // Store the receiver globally
-        let _ = STATUS_RECEIVER.set(Arc::new(Mutex::new(status_rx)));
-        
-        let tunnel_manager = Arc::new(Mutex::new(tunnel_manager));
+        let status_receiver = status_rx;
 
         // Initialize system tray
-        let (tray_icon, menu_ids) = match systemtray::init_tray(&tunnels, &tunnel_manager) {
+        let tunnel_statuses: Vec<(String, crate::tunnels::TunnelStatus)> = tunnel_manager
+            .get_tunnels()
+            .iter()
+            .map(|t| (t.name.clone(), tunnel_manager.get_tunnel_status(&t.name)))
+            .collect();
+        let (tray_icon, menu_ids) = match systemtray::init_tray(&tunnels, &tunnel_statuses) {
             Ok((icon, ids)) => (Some(icon), Some(ids)),
             Err(e) => {
-                log_print(&format!("Error initializing system tray: {}", e));
+                logger.log_print(&format!("Error initializing system tray: {}", e));
                 std::process::exit(1);
             }
         };
 
-        log_print("Drill initialized. Application running...");
+        logger.log_print("Drill initialized. Application running...");
 
         (
             Self {
@@ -137,6 +133,8 @@ impl App {
                 tunnels_file,
                 tray_icon,
                 menu_ids,
+                logger,
+                status_receiver,
             },
             Task::none(),
         )
@@ -148,62 +146,61 @@ impl App {
                 self.handle_tray_menu_event(event)
             }
 
+
             Message::OpenAbout => {
                 // Check if About window is already open
                 if let Some((window_id, _)) = self.windows.iter().find(|(_, wt)| matches!(wt, WindowType::About)) {
-                    log_print("About window already open, bringing to front...");
+                    // log_print("About window already open, bringing to front...");
                     return window::gain_focus(*window_id);
                 }
-
-                log_print("Opening About window...");
+                // log_print("Opening About window...");
                 let (id, open) = window::open(window::Settings {
                     size: Size::new(400.0, 300.0),
                     resizable: false,
                     ..window::Settings::default()
                 });
-
                 open.then(move |_| Task::done(Message::WindowOpened(id, WindowType::About)))
             }
 
             Message::OpenCreateTunnel => {
-                // Check if CreateTunnel window is already open
-                if let Some((window_id, _)) = self.windows.iter().find(|(_, wt)| matches!(wt, WindowType::CreateTunnel { .. })) {
-                    log_print("Create Tunnel window already open, bringing to front...");
+                // Check if TunnelForm window in Create mode is already open
+                if let Some((window_id, _wt)) = self.windows.iter().find(|(_, wt)| {
+                    matches!(wt, WindowType::TunnelForm { mode: windows::FormMode::Create, .. })
+                }) {
+                    // log_print("Create Tunnel window already open, bringing to front...");
                     return window::gain_focus(*window_id);
                 }
-
-                log_print("Opening Create Tunnel window...");
+                // log_print("Opening Create Tunnel window...");
                 let (id, open) = window::open(window::Settings {
                     size: Size::new(500.0, 630.0),
                     resizable: false,
                     ..window::Settings::default()
                 });
-
                 open.then(move |_| {
                     Task::done(Message::WindowOpened(
                         id,
-                        WindowType::new_create_tunnel(),
+                        WindowType::new_tunnel_form_create(),
                     ))
                 })
             }
 
             Message::TunnelStatusUpdate(update) => {
                 match update {
-                    StatusUpdate::Connecting(tunnel_name) => {
-                        log_print(&format!("Tunnel '{}' is connecting...", tunnel_name));
+                    StatusUpdate::Connecting(_tunnel_name) => {
+                        // log_print(&format!("Tunnel '{}' is connecting...", _tunnel_name));
                     }
                     StatusUpdate::Connected(tunnel_name) => {
-                        log_print(&format!("Tunnel '{}' connected successfully", tunnel_name));
-                        notifications::notify_tunnel_connected(&tunnel_name);
+                        // log_print(&format!("Tunnel '{}' connected successfully", tunnel_name));
+                        let _ = notifications::notify_tunnel_connected(&tunnel_name);
                         return self.update(Message::UpdateTrayMenu);
                     }
                     StatusUpdate::Error(tunnel_name, error) => {
-                        log_print(&format!("Tunnel '{}' error: {}", tunnel_name, error));
+                        // log_print(&format!("Tunnel '{}' error: {}", tunnel_name, error));
                         notifications::notify_tunnel_error(&tunnel_name, &error.to_string());
                         return self.update(Message::UpdateTrayMenu);
                     }
-                    StatusUpdate::Disconnected(tunnel_name) => {
-                        log_print(&format!("Tunnel '{}' disconnected", tunnel_name));
+                    StatusUpdate::Disconnected(_tunnel_name) => {
+                        // log_print(&format!("Tunnel '{}' disconnected", _tunnel_name));
                         return self.update(Message::UpdateTrayMenu);
                     }
                 }
@@ -211,16 +208,14 @@ impl App {
             }
 
             Message::TunnelConnect(tunnel_name) => {
-                log_print(&format!("Connect tunnel '{}'", tunnel_name));
-                let manager = self.tunnel_manager.lock().unwrap();
-                if let Some(tunnel) = manager.get_tunnels().iter().find(|t| t.name == tunnel_name)
-                {
-                    match manager.start_tunnel(tunnel) {
+                // log_print(&format!("Connect tunnel '{}'", tunnel_name));
+                if let Some(tunnel) = self.tunnel_manager.get_tunnels().iter().find(|t| t.name == tunnel_name).cloned() {
+                    match self.tunnel_manager.start_tunnel(&tunnel) {
                         Ok(_) => {
-                            notifications::notify_tunnel_connected(&tunnel_name);
+                            let _ = notifications::notify_tunnel_connected(&tunnel_name);
                         }
                         Err(e) => {
-                            log_print(&format!(
+                            self.logger.log_print(&format!(
                                 "Error starting tunnel '{}': {}",
                                 tunnel_name, e
                             ));
@@ -228,115 +223,102 @@ impl App {
                         }
                     }
                 }
-                drop(manager);
                 self.update(Message::UpdateTrayMenu)
             }
 
             Message::TunnelDisconnect(tunnel_name) => {
-                log_print(&format!("Disconnect tunnel '{}'", tunnel_name));
-                let manager = self.tunnel_manager.lock().unwrap();
-                match manager.stop_tunnel(&tunnel_name) {
+                // log_print(&format!("Disconnect tunnel '{}'", tunnel_name));
+                match self.tunnel_manager.stop_tunnel(&tunnel_name) {
                     Ok(_) => {
                         notifications::notify_tunnel_disconnected(&tunnel_name);
                     }
                     Err(e) => {
-                        log_print(&format!(
+                        self.logger.log_print(&format!(
                             "Error stopping tunnel '{}': {}",
                             tunnel_name, e
                         ));
                     }
                 }
-                drop(manager);
                 self.update(Message::UpdateTrayMenu)
             }
 
             Message::TunnelOpenWeb(tunnel_name) => {
-                log_print(&format!("Open web for tunnel '{}'", tunnel_name));
-                let manager = self.tunnel_manager.lock().unwrap();
-                if let Some(tunnel) = manager.get_tunnels().iter().find(|t| t.name == tunnel_name) {
+                // log_print(&format!("Open web for tunnel '{}'", tunnel_name));
+                if let Some(tunnel) = self.tunnel_manager.get_tunnels().iter().find(|t| t.name == tunnel_name) {
                     let url = format!("http://{}:{}", tunnel.local_host, tunnel.local_port);
-                    log_print(&format!("Opening URL: {}", url));
-                    drop(manager);
-                    
-                    // Open the browser
-                    if let Err(e) = open::that(&url) {
-                        log_print(&format!("Error opening browser: {}", e));
-                        notifications::notify_tunnel_error(&tunnel_name, &format!("Failed to open browser: {}", e));
+                    self.logger.log_print(&format!("Opening URL: {}", url));
+                        if let Err(_e) =
+                            TunnelManager::save_tunnels(&self.tunnels_file, self.tunnel_manager.get_tunnels())
+                        {
+                            self.logger.log_print(&format!("Error saving tunnels: {}", _e));
                     }
                 } else {
-                    drop(manager);
-                    log_print(&format!("Tunnel '{}' not found", tunnel_name));
+                    self.logger.log_print(&format!("Tunnel '{}' not found", tunnel_name));
                 }
                 Task::none()
             }
 
             Message::TunnelEdit(tunnel_name) => {
-                log_print(&format!("Edit tunnel '{}'", tunnel_name));
-                
-                // Check if Edit window is already open for this tunnel
-                if let Some((window_id, _)) = self.windows.iter().find(|(_, wt)| {
-                    matches!(wt, WindowType::EditTunnel { name, .. } if name == &tunnel_name)
+                // log_print(&format!("Edit tunnel '{}'", tunnel_name));
+                // Check if TunnelForm window in Edit mode for this tunnel is already open
+                if let Some((window_id, _wt)) = self.windows.iter().find(|(_, wt)| {
+                    matches!(wt, WindowType::TunnelForm { mode: windows::FormMode::Edit { tunnel_id }, .. } if {
+                        let manager = &self.tunnel_manager;
+                        manager.get_tunnels().iter().any(|t| t.name == tunnel_name && &t.id == tunnel_id)
+                    })
                 }) {
-                    log_print("Edit window already open for this tunnel, bringing to front...");
+                    // log_print("Edit window already open for this tunnel, bringing to front...");
                     return window::gain_focus(*window_id);
                 }
-
                 // Find the tunnel and open edit window
-                let manager = self.tunnel_manager.lock().unwrap();
-                if let Some(tunnel) = manager.get_tunnels().iter().find(|t| t.name == tunnel_name) {
+                if let Some(tunnel) = self.tunnel_manager.get_tunnels().iter().find(|t| t.name == tunnel_name) {
                     let tunnel_clone = tunnel.clone();
-                    drop(manager);
-
-                    log_print("Opening Edit Tunnel window...");
+                    self.logger.log_print("Opening Edit Tunnel window...");
                     let (id, open) = window::open(window::Settings {
                         size: Size::new(600.0, 700.0),
                         resizable: true,
                         ..window::Settings::default()
                     });
-
                     return open.then(move |_| {
                         Task::done(Message::WindowOpened(
                             id,
-                            WindowType::new_edit_tunnel(&tunnel_clone),
+                            WindowType::new_tunnel_form_edit(&tunnel_clone),
                         ))
                     });
                 } else {
-                    log_print(&format!("Tunnel '{}' not found", tunnel_name));
-                    drop(manager);
+                    self.logger.log_print(&format!("Tunnel '{}' not found", tunnel_name));
                 }
                 Task::none()
             }
 
             Message::TunnelRemove(tunnel_name) => {
-                log_print(&format!("Remove tunnel '{}'", tunnel_name));
-                let mut manager = self.tunnel_manager.lock().unwrap();
-                match manager.remove_tunnel(&tunnel_name) {
+                self.logger.log_print(&format!("Remove tunnel '{}'", tunnel_name));
+                match self.tunnel_manager.remove_tunnel(&tunnel_name) {
                     Ok(_) => {
                         // Save the updated tunnels list
                         if let Err(e) =
-                            TunnelManager::save_tunnels(&self.tunnels_file, manager.get_tunnels())
+                            TunnelManager::save_tunnels(&self.tunnels_file, self.tunnel_manager.get_tunnels())
                         {
-                            log_print(&format!("Error saving tunnels: {}", e));
+                            self.logger.log_print(&format!("Error saving tunnels: {}", e));
                         } else {
                             notifications::notify_tunnel_removed(&tunnel_name);
                         }
                     }
                     Err(e) => {
-                        log_print(&format!(
+                        self.logger.log_print(&format!(
                             "Error removing tunnel '{}': {}",
                             tunnel_name, e
                         ));
                     }
                 }
-                drop(manager);
                 self.update(Message::UpdateTrayMenu)
             }
 
             Message::Quit => {
-                log_print("Quit selected from tray menu");
-                let manager = self.tunnel_manager.lock().unwrap();
+                self.logger.log_print("Quit selected from tray menu");
+                let manager = &mut self.tunnel_manager;
                 manager.cleanup();
-                drop(manager);
+                let _ = manager;
                 iced::exit()
             }
 
@@ -374,20 +356,13 @@ impl App {
                 }
 
                 let extra_height = match window_type.unwrap() {
-                    WindowType::CreateTunnel {
-                        name, local_host, local_port, remote_host, remote_port,
-                        ssh_user, ssh_host, ssh_port, private_key,
-                        error_message, test_message,
-                    } | WindowType::EditTunnel {
+                    WindowType::TunnelForm {
                         name, local_host, local_port, remote_host, remote_port,
                         ssh_user, ssh_host, ssh_port, private_key,
                         error_message, test_message, ..
                     } => {
-                        // Clear previous messages
                         *error_message = None;
                         *test_message = None;
-
-                        // Validate and test
                         match windows::create_tunnel::validate_and_create_tunnel(
                             name, local_host, local_port, remote_host, remote_port,
                             ssh_user, ssh_host, ssh_port, private_key,
@@ -395,12 +370,12 @@ impl App {
                             Ok(tunnel) => {
                                 match TunnelManager::test_tunnel(&tunnel) {
                                     Ok(success_msg) => *test_message = Some(success_msg),
-                                    Err(err_msg) => *test_message = Some(err_msg),
+                                    Err(err) => *test_message = Some(format!("{}", err)),
                                 }
                                 test_message.as_ref().map(|msg| (msg.len() / 60).max(1) as f32 * 20.0 + 40.0).unwrap_or(0.0)
                             }
                             Err(err) => {
-                                *error_message = Some(err);
+                                *error_message = Some(format!("{}", err));
                                 error_message.as_ref().map(|msg| (msg.len() / 60).max(1) as f32 * 20.0 + 40.0).unwrap_or(0.0)
                             }
                         }
@@ -419,17 +394,20 @@ impl App {
 
             Message::UpdateTrayMenu => {
                 if let (Some(tray_icon), Some(_)) = (&mut self.tray_icon, &self.menu_ids) {
-                    let manager = self.tunnel_manager.lock().unwrap();
+                    let manager = &self.tunnel_manager;
                     let tunnels = manager.get_tunnels().clone();
-                    drop(manager);
-
-                    match systemtray::update_tray_menu(tray_icon, &tunnels, &self.tunnel_manager)
-                    {
+                    let _ = manager;
+                    let tunnel_statuses: Vec<(String, crate::tunnels::TunnelStatus)> = manager
+                        .get_tunnels()
+                        .iter()
+                        .map(|t| (t.name.clone(), manager.get_tunnel_status(&t.name)))
+                        .collect();
+                    match systemtray::update_tray_menu(tray_icon, &tunnels, &tunnel_statuses) {
                         Ok(new_ids) => {
                             self.menu_ids = Some(new_ids);
                         }
                         Err(e) => {
-                            log_print(&format!("Error updating tray menu: {}", e));
+                            self.logger.log_print(&format!("Error updating tray menu: {}", e));
                         }
                     }
                 }
@@ -444,18 +422,14 @@ impl App {
                 WindowType::About => {
                     windows::about::view().map(|msg| match msg {})
                 }
-                WindowType::CreateTunnel {
+                WindowType::TunnelForm {
+                    mode,
                     name, local_host, local_port, remote_host, remote_port,
                     ssh_user, ssh_host, ssh_port, private_key,
                     error_message, test_message,
-                } | WindowType::EditTunnel {
-                    name, local_host, local_port, remote_host, remote_port,
-                    ssh_user, ssh_host, ssh_port, private_key,
-                    error_message, test_message, ..
                 } => {
-                    let is_edit_mode = matches!(window_type, WindowType::EditTunnel { .. });
                     windows::create_tunnel::view(
-                        is_edit_mode,
+                        mode,
                         name, local_host, local_port,
                         remote_host, remote_port,
                         ssh_user, ssh_host, ssh_port,
@@ -484,7 +458,6 @@ impl App {
 
         // Poll tray menu events periodically
         struct TrayEventsPoll;
-        
         let tray_subscription = Subscription::run_with_id(
             std::any::TypeId::of::<TrayEventsPoll>(),
             iced::stream::channel(100, |mut output| async move {
@@ -494,34 +467,23 @@ impl App {
                     while let Ok(event) = menu_channel.try_recv() {
                         let _ = output.send(event).await;
                     }
-                    
                     // Small delay to avoid busy-waiting  
                     tokio::time::sleep(tokio::time::Duration::from_millis(16)).await;
                 }
             })
         ).map(Message::TrayMenuEvent);
-        
+
         // Tunnel status monitoring subscription
         struct TunnelStatusMonitor;
-        
+        let mut status_receiver = self.status_receiver.resubscribe();
         let status_subscription = Subscription::run_with_id(
             std::any::TypeId::of::<TunnelStatusMonitor>(),
-            iced::stream::channel(100, |mut output| async move {
+            iced::stream::channel(100, move |mut output| async move {
                 loop {
-                    // Try to get the receiver
-                    if let Some(receiver_arc) = STATUS_RECEIVER.get() {
-                        // Try to receive without holding the lock across await
-                        let update_opt = {
-                            let mut receiver = receiver_arc.lock().unwrap();
-                            receiver.try_recv().ok()
-                        };
-                        
-                        if let Some(update) = update_opt {
-                            let _ = output.send(update).await;
-                        }
+                    let update_opt = status_receiver.try_recv().ok();
+                    if let Some(update) = update_opt {
+                        let _ = output.send(update).await;
                     }
-                    
-                    // Small delay to avoid busy-waiting
                     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 }
             })
@@ -549,7 +511,7 @@ impl App {
 
     /// Handles tray menu events and dispatches appropriate messages
     fn handle_tray_menu_event(&mut self, event: MenuEvent) -> Task<Message> {
-        log_print(&format!("Received tray menu event: {:?}", event.id));
+        // log_print(&format!("Received tray menu event: {:?}", event.id));
         
         let Some(menu_ids) = &self.menu_ids else {
             return Task::none();
@@ -632,10 +594,7 @@ impl App {
     fn update_tunnel_form_field(&mut self, window_id: window::Id, field: TunnelFormField) {
         if let Some(window_type) = self.windows.get_mut(&window_id) {
             match window_type {
-                WindowType::CreateTunnel {
-                    name, local_host, local_port, remote_host, remote_port,
-                    ssh_user, ssh_host, ssh_port, private_key, ..
-                } | WindowType::EditTunnel {
+                WindowType::TunnelForm {
                     name, local_host, local_port, remote_host, remote_port,
                     ssh_user, ssh_host, ssh_port, private_key, ..
                 } => {
@@ -662,9 +621,9 @@ impl App {
         if window_type.is_none() {
             return Task::none();
         }
-
         match window_type.unwrap() {
-            WindowType::CreateTunnel {
+            WindowType::TunnelForm {
+                mode,
                 name, local_host, local_port, remote_host, remote_port,
                 ssh_user, ssh_host, ssh_port, private_key,
                 error_message, ..
@@ -673,67 +632,40 @@ impl App {
                     name, local_host, local_port, remote_host, remote_port,
                     ssh_user, ssh_host, ssh_port, private_key,
                 ) {
-                    Ok(tunnel) => {
-                        log_print(&format!("Saving new tunnel: {}", tunnel.name));
-
-                        let mut manager = self.tunnel_manager.lock().unwrap();
-                        manager.add_tunnel(tunnel.clone());
-
-                        if let Err(e) = TunnelManager::save_tunnels(&self.tunnels_file, manager.get_tunnels()) {
-                            log_print(&format!("Error saving tunnels: {}", e));
-                        } else {
-                            notifications::notify_tunnel_created(&tunnel.name);
-                        }
-                        drop(manager);
-
-                        Task::batch(vec![
-                            self.update(Message::UpdateTrayMenu),
-                            window::close(window_id),
-                        ])
-                    }
-                    Err(err) => {
-                        *error_message = Some(err);
-                        let extra_height = error_message.as_ref()
-                            .map(|msg| (msg.len() / 60).max(1) as f32 * 20.0 + 40.0)
-                            .unwrap_or(0.0);
-                        window::resize(window_id, Size::new(500.0, 640.0 + extra_height))
-                    }
-                }
-            }
-            WindowType::EditTunnel {
-                tunnel_id, name, local_host, local_port, remote_host, remote_port,
-                ssh_user, ssh_host, ssh_port, private_key,
-                error_message, ..
-            } => {
-                match windows::create_tunnel::validate_and_create_tunnel(
-                    name, local_host, local_port, remote_host, remote_port,
-                    ssh_user, ssh_host, ssh_port, private_key,
-                ) {
                     Ok(mut tunnel) => {
-                        log_print(&format!("Updating tunnel: {}", tunnel.name));
-
-                        tunnel.id = tunnel_id.clone();
-
-                        let mut manager = self.tunnel_manager.lock().unwrap();
-                        if let Err(e) = manager.update_tunnel(tunnel_id, tunnel.clone()) {
-                            log_print(&format!("Error updating tunnel: {}", e));
-                            *error_message = Some(format!("Error updating tunnel: {}", e));
-                            drop(manager);
-                            return Task::none();
+                        let manager = &mut self.tunnel_manager;
+                        match mode {
+                            windows::FormMode::Create => {
+                                // log_print(&format!("Saving new tunnel: {}", tunnel.name));
+                                manager.add_tunnel(tunnel.clone());
+                                if let Err(_e) = TunnelManager::save_tunnels(&self.tunnels_file, manager.get_tunnels()) {
+                                    // log_print(&format!("Error saving tunnels: {}", _e));
+                                } else {
+                                    notifications::notify_tunnel_created(&tunnel.name);
+                                }
+                            }
+                            windows::FormMode::Edit { tunnel_id } => {
+                                // log_print(&format!("Updating tunnel: {}", tunnel.name));
+                                tunnel.id = tunnel_id.clone();
+                                if let Err(e) = manager.update_tunnel(tunnel_id, tunnel.clone()) {
+                                    // log_print(&format!("Error updating tunnel: {}", e));
+                                    *error_message = Some(format!("Error updating tunnel: {}", e));
+                                    let _ = manager;
+                                    return Task::none();
+                                }
+                                if let Err(_e) = TunnelManager::save_tunnels(&self.tunnels_file, manager.get_tunnels()) {
+                                    // log_print(&format!("Error saving tunnels: {}", _e));
+                                }
+                            }
                         }
-
-                        if let Err(e) = TunnelManager::save_tunnels(&self.tunnels_file, manager.get_tunnels()) {
-                            log_print(&format!("Error saving tunnels: {}", e));
-                        }
-                        drop(manager);
-
+                        let _ = manager;
                         Task::batch(vec![
                             self.update(Message::UpdateTrayMenu),
                             window::close(window_id),
                         ])
                     }
                     Err(err) => {
-                        *error_message = Some(err);
+                        *error_message = Some(format!("{}", err));
                         let extra_height = error_message.as_ref()
                             .map(|msg| (msg.len() / 60).max(1) as f32 * 20.0 + 40.0)
                             .unwrap_or(0.0);

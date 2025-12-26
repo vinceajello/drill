@@ -1,4 +1,5 @@
 use crate::tunnels::Tunnel;
+use super::FormMode;
 use iced::widget::{button, column, container, row, text, text_input, Column};
 use iced::{Element, Length};
 
@@ -20,7 +21,7 @@ pub enum Message {
 }
 
 pub fn view<'a>(
-    is_edit_mode: bool,
+    mode: &FormMode,
     name: &str,
     local_host: &str,
     local_port: &str,
@@ -33,7 +34,10 @@ pub fn view<'a>(
     error_message: &'a Option<String>,
     test_message: &'a Option<String>,
 ) -> Element<'a, Message> {
-    let title = if is_edit_mode { "Edit Tunnel" } else { "Drill New Tunnel" };
+    let title = match mode {
+        FormMode::Edit { .. } => "Edit Tunnel",
+        FormMode::Create => "Drill New Tunnel",
+    };
     let mut content: Column<'a, Message> = column![
         text(title).size(20),
         text("").size(8),
@@ -149,6 +153,7 @@ pub fn view<'a>(
     }
 
     content = content.push(text("").size(8));
+    let is_edit_mode = matches!(mode, FormMode::Edit { .. });
     let action_button_text = if is_edit_mode { "Save" } else { "Create" };
     content = content.push(
         row![

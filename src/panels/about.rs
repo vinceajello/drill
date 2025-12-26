@@ -1,8 +1,8 @@
-use crate::logs::log_print;
+// use crate::logs::log_print;
 
 /// Show the about dialog using iced
 pub fn show_about_window() {
-    log_print("Opening About dialog...");
+    // log_print("Opening About dialog...");
     
     // Launch the about dialog as a separate process
     // This avoids the main thread requirement on macOS
@@ -17,11 +17,11 @@ pub fn show_about_window() {
         match std::process::Command::new(&about_exe).spawn() {
             Ok(mut child) => {
                 let _ = child.wait();
-                log_print("About dialog closed");
+                // log_print("About dialog closed");
             }
             Err(e) => {
-                log_print(&format!("Error launching about dialog: {}", e));
-                log_print(&format!("Tried to run: {:?}", about_exe));
+                // log_print(&format!("Error launching about dialog: {}", e));
+                // log_print(&format!("Tried to run: {:?}", about_exe));
             }
         }
     });

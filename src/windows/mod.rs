@@ -2,23 +2,17 @@ pub mod about;
 pub mod create_tunnel;
 
 #[derive(Debug, Clone)]
+
+pub enum FormMode {
+    Create,
+    Edit { tunnel_id: String },
+}
+
+#[derive(Debug, Clone)]
 pub enum WindowType {
     About,
-    CreateTunnel {
-        name: String,
-        local_host: String,
-        local_port: String,
-        remote_host: String,
-        remote_port: String,
-        ssh_user: String,
-        ssh_host: String,
-        ssh_port: String,
-        private_key: String,
-        error_message: Option<String>,
-        test_message: Option<String>,
-    },
-    EditTunnel {
-        tunnel_id: String,
+    TunnelForm {
+        mode: FormMode,
         name: String,
         local_host: String,
         local_port: String,
@@ -34,8 +28,9 @@ pub enum WindowType {
 }
 
 impl WindowType {
-    pub fn new_create_tunnel() -> Self {
-        WindowType::CreateTunnel {
+    pub fn new_tunnel_form_create() -> Self {
+        WindowType::TunnelForm {
+            mode: FormMode::Create,
             name: String::new(),
             local_host: "127.0.0.1".to_string(),
             local_port: String::new(),
@@ -50,9 +45,9 @@ impl WindowType {
         }
     }
 
-    pub fn new_edit_tunnel(tunnel: &crate::tunnels::Tunnel) -> Self {
-        WindowType::EditTunnel {
-            tunnel_id: tunnel.id.clone(),
+    pub fn new_tunnel_form_edit(tunnel: &crate::tunnels::Tunnel) -> Self {
+        WindowType::TunnelForm {
+            mode: FormMode::Edit { tunnel_id: tunnel.id.clone() },
             name: tunnel.name.clone(),
             local_host: tunnel.local_host.clone(),
             local_port: tunnel.local_port.clone(),

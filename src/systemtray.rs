@@ -1,8 +1,6 @@
 use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuId, PredefinedMenuItem, Submenu}, TrayIcon};
-use crate::logs::log_print;
-use crate::tunnels::{Tunnel, TunnelStatus, TunnelManager};
+use crate::tunnels::{Tunnel, TunnelStatus};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 pub struct TrayMenuIds {
     pub create: MenuId,
@@ -16,7 +14,7 @@ pub struct TrayMenuIds {
 }
 
 /// Initialize the system tray icon with menu
-pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager>>) -> Result<(TrayIcon, TrayMenuIds), Box<dyn std::error::Error>> {
+pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_statuses: &[(String, TunnelStatus)]) -> Result<(TrayIcon, TrayMenuIds), Box<dyn std::error::Error>> {
     // Create a simple menu
     let menu = Menu::new();
 
@@ -32,11 +30,10 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager
     let mut tunnel_edit_ids = HashMap::new();
     let mut tunnel_remove_ids = HashMap::new();
     
-    let manager = tunnel_manager.lock().unwrap();
-    
+    let status_map: std::collections::HashMap<_, _> = tunnel_statuses.iter().cloned().collect();
     for tunnel in tunnels {
         // Get current status
-        let status = manager.get_tunnel_status(&tunnel.name);
+        let status = status_map.get(&tunnel.name).cloned().unwrap_or(TunnelStatus::Disconnected);
         let display_name = get_tunnel_display_name(&tunnel.name, status.clone());
         
         // Create submenu for each tunnel with status indicator
@@ -56,7 +53,7 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager
                 tunnel_disconnect_ids.insert(tunnel.name.clone(), disconnect_id);
                 tunnel_submenu.append(&disconnect_item)?;
                 
-                // Add "Open Web" button when connected
+                let status = tunnel_statuses.iter().find(|(name, _)| name == &tunnel.name).map(|(_, status)| status.clone()).unwrap_or(TunnelStatus::Disconnected);
                 if matches!(status, TunnelStatus::Connected { .. }) {
                     let open_web_item = MenuItem::new("Open Web", true, None);
                     let open_web_id = open_web_item.id().clone();
@@ -82,7 +79,6 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager
         menu.append(&tunnel_submenu)?;
     }
     
-    drop(manager);
     
     // Add separator if there are tunnels
     if !tunnels.is_empty() {
@@ -135,7 +131,7 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager
 }
 
 /// Update the tray menu with current tunnel states
-pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_manager: &Arc<Mutex<TunnelManager>>) -> Result<TrayMenuIds, Box<dyn std::error::Error>> {
+pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_statuses: &[(String, TunnelStatus)]) -> Result<TrayMenuIds, Box<dyn std::error::Error>> {
     // Create new menu
     let menu = Menu::new();
 
@@ -151,11 +147,9 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
     let mut tunnel_edit_ids = HashMap::new();
     let mut tunnel_remove_ids = HashMap::new();
     
-    let manager = tunnel_manager.lock().unwrap();
-    
     for tunnel in tunnels {
-        // Get current status
-        let status = manager.get_tunnel_status(&tunnel.name);
+        // Get current status from tunnel_statuses
+        let status = tunnel_statuses.iter().find(|(name, _)| name == &tunnel.name).map(|(_, status)| status.clone()).unwrap_or(TunnelStatus::Disconnected);
         let display_name = get_tunnel_display_name(&tunnel.name, status.clone());
         
         // Create submenu for each tunnel with status indicator
@@ -201,7 +195,7 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
         menu.append(&tunnel_submenu)?;
     }
     
-    drop(manager);
+    // No manager to drop
     
     // Add separator if there are tunnels
     if !tunnels.is_empty() {
@@ -287,8 +281,8 @@ fn create_tray_icon() -> tray_icon::Icon {
         Ok(icon) => {
             icon
         },
-        Err(e) => {
-            log_print(&format!("Error creating icon: {}", e));
+        Err(_e) => {
+            // log_print(&format!("Error creating icon: {}", _e));
             panic!("Failed to create tray icon");
         }
     }

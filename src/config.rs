@@ -1,14 +1,15 @@
 use std::fs;
 use std::path::PathBuf;
 use std::io::Write;
-use crate::logs;
+use crate::logs::Logger;
+use crate::error::{DrillResult, DrillError};
 
 /// Initialize the application configuration directory and files
-/// Returns the path to the config file
-pub fn init_config() -> Result<PathBuf, Box<dyn std::error::Error>> {
+/// Returns the path to the config file and a Logger
+pub fn init_config() -> DrillResult<(PathBuf, Logger)> {
     // Get home directory
     let home_dir = dirs::home_dir()
-        .ok_or("Could not determine home directory")?;
+        .ok_or_else(|| DrillError::Config("Could not determine home directory".to_string()))?;
     
     // Create .drill directory path
     let drill_dir = home_dir.join(".drill");
@@ -34,17 +35,16 @@ pub fn init_config() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let log_file_path = logs_dir.join(format!("drill_{}.log", timestamp));
     let log_file = fs::File::create(&log_file_path)?;
     
-    // Initialize the global log file
-    logs::init_log_file(log_file);
+    // Initialize the logger
+    let mut logger = Logger::new(log_file);
     
     // Create config file path
     let config_file = drill_dir.join("config");
     
     // Check if config file exists, create if not
     if !config_file.exists() {
-        logs::log_print(&format!("Creating default config file at: {}", config_file.display()));
+        logger.log_print(&format!("Creating default config file at: {}", config_file.display()));
         let mut file = fs::File::create(&config_file)?;
-        
         // Write default configuration
         let default_config = r#"# Drill Configuration File
 # Add your configuration settings here
@@ -55,7 +55,7 @@ pub fn init_config() -> Result<PathBuf, Box<dyn std::error::Error>> {
 "#;
         file.write_all(default_config.as_bytes())?;
     } else {
-        logs::log_print(&format!("Config file found at: {}", config_file.display()));
+        logger.log_print(&format!("Config file found at: {}", config_file.display()));
         // Load existing config (for now just read it)
         let _config_content = fs::read_to_string(&config_file)?;
     }
@@ -65,24 +65,21 @@ pub fn init_config() -> Result<PathBuf, Box<dyn std::error::Error>> {
     
     // Check if tunnels file exists, create if not
     if !tunnels_file.exists() {
-        logs::log_print(&format!("Creating default tunnels file at: {}", tunnels_file.display()));
+        logger.log_print(&format!("Creating default tunnels file at: {}", tunnels_file.display()));
         let mut file = fs::File::create(&tunnels_file)?;
-        
         // Write default empty tunnels array in YAML format
         let default_tunnels = "[]\n";
         file.write_all(default_tunnels.as_bytes())?;
     } else {
-        logs::log_print(&format!("Tunnels file found at: {}", tunnels_file.display()));
+        logger.log_print(&format!("Tunnels file found at: {}", tunnels_file.display()));
     }
-    
-    Ok(config_file)
+    Ok((config_file, logger))
 }
 
 /// Get the path to the tunnels file
-pub fn get_tunnels_file_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub fn get_tunnels_file_path() -> DrillResult<PathBuf> {
     let home_dir = dirs::home_dir()
-        .ok_or("Could not determine home directory")?;
-    
+        .ok_or_else(|| DrillError::Config("Could not determine home directory".to_string()))?;
     let drill_dir = home_dir.join(".drill");
     Ok(drill_dir.join("tunnels"))
 }
