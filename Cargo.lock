@@ -1248,6 +1248,7 @@ dependencies = [
  "clap",
  "dirs 5.0.1",
  "iced",
+ "iced_winit",
  "image 0.25.9",
  "mac-notification-sys",
  "notify-rust",

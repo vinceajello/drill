@@ -150,10 +150,9 @@ impl App {
             Message::OpenAbout => {
                 // Check if About window is already open
                 if let Some((window_id, _)) = self.windows.iter().find(|(_, wt)| matches!(wt, WindowType::About)) {
-                    // log_print("About window already open, bringing to front...");
                     return window::gain_focus(*window_id);
                 }
-                // log_print("Opening About window...");
+                // No custom icon set (icon_alpha.png usage removed)
                 let (id, open) = window::open(window::Settings {
                     size: Size::new(400.0, 300.0),
                     resizable: false,
@@ -167,10 +166,9 @@ impl App {
                 if let Some((window_id, _wt)) = self.windows.iter().find(|(_, wt)| {
                     matches!(wt, WindowType::TunnelForm { mode: windows::FormMode::Create, .. })
                 }) {
-                    // log_print("Create Tunnel window already open, bringing to front...");
                     return window::gain_focus(*window_id);
                 }
-                // log_print("Opening Create Tunnel window...");
+                // No custom icon set (icon_alpha.png usage removed)
                 let (id, open) = window::open(window::Settings {
                     size: Size::new(500.0, 630.0),
                     resizable: false,

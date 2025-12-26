@@ -19,6 +19,8 @@ minimum-system-version = "10.13"
 info-plist-path = "resources/Info.plist"
 
 [dependencies]
+# For window icon support
+iced_winit = "0.13"
 # Cross-platform system information
 sysinfo = "0.32"
 
