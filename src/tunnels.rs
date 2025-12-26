@@ -201,6 +201,14 @@ impl TunnelManager {
             .stdout(Stdio::null())
             .stdin(Stdio::null());
 
+        // On Windows, suppress terminal window
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+
         match command.spawn() {
             Ok(mut child) => {
                 let tunnel_name = tunnel.name.clone();
@@ -327,6 +335,14 @@ impl TunnelManager {
             .arg(&remote)
             .arg("echo")
             .arg("'SSH connection test successful'");
+
+        // On Windows, suppress terminal window
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
 
         match command.output() {
             Ok(output) => {

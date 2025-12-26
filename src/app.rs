@@ -212,7 +212,7 @@ impl App {
                 if let Some(tunnel) = self.tunnel_manager.get_tunnels().iter().find(|t| t.name == tunnel_name).cloned() {
                     match self.tunnel_manager.start_tunnel(&tunnel) {
                         Ok(_) => {
-                            let _ = notifications::notify_tunnel_connected(&tunnel_name);
+                            // Notification will be sent only after true connection (StatusUpdate::Connected)
                         }
                         Err(e) => {
                             self.logger.log_print(&format!(
