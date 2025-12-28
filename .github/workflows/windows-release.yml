@@ -1,9 +1,14 @@
+
+
 name: Build and Release Windows Executable
+
+permissions:
+  contents: write
 
 on:
   push:
-    branches:
-      - release
+    tags:
+      - 'v*'
 
 jobs:
   build-and-release:
