@@ -6,7 +6,21 @@ authors = ["Your Name <you@example.com>"]
 description = "A multi-platform application for macOS, Windows, and Linux"
 license = "MIT OR Apache-2.0"
 
+[package.metadata.packager]
+product-name = "Drill"
+identifier = "com.drill.app"
+category = "DeveloperTool"
+copyright = "Copyright (c) 2025. All rights reserved."
+before-packaging-command = "cargo build --release"
+out-dir = "target/release/bundle"
+
+[package.metadata.packager.macos]
+minimum-system-version = "10.13"
+info-plist-path = "resources/Info.plist"
+
 [dependencies]
+# For window icon support
+iced_winit = "0.13"
 # Cross-platform system information
 sysinfo = "0.32"
 
@@ -21,20 +35,51 @@ chrono = "0.4"
 
 # System tray icon
 tray-icon = "0.19"
-tao = "0.30"
 
-# GUI framework
-iced = { version = "0.13", features = ["tokio"] }
+# Tokio async runtime
+tokio = { version = "1.48", features = ["time", "sync", "rt", "macros"] }
+
+# Error handling
+thiserror = "2.0"
+
+# Global statics
+once_cell = "1.20"
 
 # YAML serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 
+# UUID generation
+uuid = { version = "1.11", features = ["v4", "serde"] }
+
+# File dialogs
+rfd = "0.15"
+
+# Cross-platform desktop notifications
+notify-rust = "4"
+
+# Open URLs in the default browser
+open = "5.0"
+
+# Image processing for loading icons
+image = "0.25"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # macOS specific dependencies
+mac-notification-sys = "0.6.9"
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+# GUI framework - GPU-accelerated on macOS and Linux
+iced = { version = "0.13", features = ["tokio", "multi-window", "image"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Windows specific dependencies
+# GUI framework - CPU-based software rendering (no GPU)
+iced = { version = "0.13", features = ["tokio", "multi-window", "image", "tiny-skia"], default-features = false }
+
+[build-dependencies]
+# Windows resource compiler for embedding icons
+winresource = "0.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Linux specific dependencies
@@ -48,11 +93,3 @@ strip = true
 [[bin]]
 name = "drill"
 path = "src/main.rs"
-
-[[bin]]
-name = "drill-about"
-path = "src/panels/bin/about_dialog.rs"
-
-[[bin]]
-name = "drill-create"
-path = "src/panels/bin/create_dialog.rs"

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>English</string>
+    <key>CFBundleDisplayName</key>
+    <string>Drill</string>
+    <key>CFBundleExecutable</key>
+    <string>drill</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.drill.app</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Drill</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>0.1.0</string>
+    <key>CSResourcesFileMapped</key>
+    <true/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.developer-tools</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.13</string>
+    <key>LSRequiresCarbon</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (c) 2025. All rights reserved.</string>
+    <!-- Enable user notifications with alert style -->
+    <key>NSUserNotificationAlertStyle</key>
+    <string>alert</string>
+    <!-- Allow app to run in background to deliver notifications -->
+    <key>LSUIElement</key>
+    <false/>
+</dict>
+</plist>
