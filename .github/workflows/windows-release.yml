@@ -1,14 +1,14 @@
 
+
 name: Build and Release Windows Executable
+
+permissions:
+  contents: write
 
 on:
   push:
     tags:
       - 'v*'
-  # Optionally, keep branch trigger if needed
-  # push:
-  #   branches:
-  #     - release
 
 jobs:
   build-and-release:
