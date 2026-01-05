@@ -37,6 +37,6 @@
     <string>alert</string>
     <!-- Allow app to run in background to deliver notifications -->
     <key>LSUIElement</key>
-    <false/>
+    <true/>
 </dict>
 </plist>

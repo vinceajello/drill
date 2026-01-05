@@ -13,6 +13,7 @@ category = "DeveloperTool"
 copyright = "Copyright (c) 2025. All rights reserved."
 before-packaging-command = "cargo build --release"
 out-dir = "target/release/bundle"
+icons = ["resources/icon.icns"]
 
 [package.metadata.packager.macos]
 minimum-system-version = "10.13"
