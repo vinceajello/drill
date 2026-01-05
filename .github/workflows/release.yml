@@ -1,0 +1,54 @@
+name: Build and Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: target/x86_64-pc-windows-msvc/release/drill.exe
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: target/release/bundle/macos/*.dmg
+            needs_packager: true
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install cargo-packager (macOS only)
+        if: matrix.needs_packager
+        run: cargo install cargo-packager
+
+      - name: Build Windows executable
+        if: matrix.os == 'windows-latest'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build macOS bundle
+        if: matrix.os == 'macos-latest'
+        run: cargo packager --release
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
