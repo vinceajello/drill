@@ -6,12 +6,6 @@ set -e
 
 echo "Building Drill for macOS..."
 
-# Check if cargo-packager is installed
-if ! command -v cargo-packager &> /dev/null; then
-    echo "! cargo-packager not found. Installing..."
-    cargo install cargo-packager --locked
-fi
-
 # Build the bundle
 echo "Creating .app bundle and .dmg..."
 cargo packager --release
