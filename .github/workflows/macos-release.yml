@@ -1,0 +1,35 @@
+name: Build and Release macOS Application
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager
+
+      - name: Build macOS bundle
+        run: cargo packager --release
+
+      - name: Upload DMG installer
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/release/bundle/macos/*.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
