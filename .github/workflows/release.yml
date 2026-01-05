@@ -1,0 +1,91 @@
+name: Build and Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: target/x86_64-pc-windows-msvc/release/drill.exe
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: target/release/bundle/*.dmg
+            needs_packager: true
+    
+    runs-on: ${{ matrix.os }}
+    env:
+      # raw tag like "v0.1.0"
+      RAW_TAG: ${{ github.ref_name }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install cargo-packager (macOS only)
+        if: matrix.needs_packager
+        run: cargo install cargo-packager
+
+      - name: Build Windows executable
+        if: matrix.os == 'windows-latest'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build macOS bundle
+        if: matrix.os == 'macos-latest'
+        run: cargo packager --release
+
+      - name: Prepare Windows artifact name
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ver = '${{ env.RAW_TAG }}' -replace '^v',''
+          $arch = 'x86_64'
+          $src = "target/${{ matrix.target }}/release/drill.exe"
+          $dest = "target/${{ matrix.target }}/release/drill_${ver}_${arch}.exe"
+          if (Test-Path $src) { Copy-Item $src $dest } else { Write-Error "Source not found: $src"; exit 1 }
+          "UPLOAD_FILE=$dest" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Prepare macOS artifact name (lowercase)
+        if: matrix.os == 'macos-latest'
+        run: |
+          ver=${{ env.RAW_TAG }}
+          ver=${ver#v}
+          arch=$(echo "${{ matrix.target }}" | cut -d- -f1)
+          for f in target/release/bundle/*.dmg; do
+            dir=$(dirname "$f")
+            new="$dir/drill_${ver}_${arch}.dmg"
+            mv "$f" "$new"
+            echo "UPLOAD_FILE=$new" >> $GITHUB_ENV
+          done
+
+      - name: Upload Windows release asset
+        if: matrix.os == 'windows-latest'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.UPLOAD_FILE }}
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload macOS release asset
+        if: matrix.os == 'macos-latest'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.UPLOAD_FILE }}
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

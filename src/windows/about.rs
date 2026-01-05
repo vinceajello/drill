@@ -14,7 +14,7 @@ pub fn view<'a>() -> Element<'a, Message> {
         Image::new(icon_handle).width(64).height(64),
         text("").size(4),
         text("Drill").size(24),
-        text("Version 0.1.0").size(14),
+        text("Version 0.1.1").size(14),
         text("").size(8),
         text("A multi-platform tunnel drilling application"),
         text("for macOS, Windows, and Linux"),
