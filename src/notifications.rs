@@ -25,7 +25,7 @@ pub fn init_notifications() {
                 INIT_SUCCESS.store(true, Ordering::Relaxed);
                 // logger.log_print(&format!("✓ Notification system initialized with bundle: {}", bundle));
             }
-            Err(e) => {
+            Err(_e) => {
                 // logger.log_print(&format!("⚠️  Notification initialization failed: {}", e));
                 // logger.log_print("  Notifications may not work correctly");
             }
@@ -94,7 +94,8 @@ pub fn notify_tunnel_disconnected(tunnel_name: &str) {
             "Tunnel Disconnected",
             &format!("Tunnel '{}' has been disconnected", tunnel_name)
         ) {
-            Ok(_) => {}
+            Ok(_) => {},
+            Err(_) => {},
             // Err(e) => logger.log_print(&format!("Error showing notification: {}", e)),
         }
     }
@@ -123,7 +124,8 @@ pub fn notify_tunnel_error(tunnel_name: &str, error_message: &str) {
             "Tunnel Error",
             &format!("Failed to connect tunnel '{}':\n{}", tunnel_name, error_message)
         ) {
-            Ok(_) => {}
+            Ok(_) => {},
+            Err(_) => {},
             // Err(e) => logger.log_print(&format!("Error showing notification: {}", e)),
         }
     }
@@ -152,7 +154,8 @@ pub fn notify_tunnel_removed(tunnel_name: &str) {
             "Tunnel Removed",
             &format!("Tunnel '{}' has been removed", tunnel_name)
         ) {
-            Ok(_) => {}
+            Ok(_) => {},
+            Err(_) => {},
             // Err(e) => logger.log_print(&format!("Error showing notification: {}", e)),
         }
     }
@@ -181,7 +184,8 @@ pub fn notify_tunnel_created(tunnel_name: &str) {
             "Tunnel Created",
             &format!("Tunnel '{}' has been created successfully", tunnel_name)
         ) {
-            Ok(_) => {}
+            Ok(_) => {},
+            Err(_) => {},
             // Err(e) => logger.log_print(&format!("Error showing notification: {}", e)),
         }
     }
