@@ -18,7 +18,7 @@ jobs:
             artifact: target/x86_64-pc-windows-msvc/release/drill.exe
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: target/release/bundle/macos/*.dmg
+            artifact: target/release/bundle/*.dmg
             needs_packager: true
     
     runs-on: ${{ matrix.os }}
