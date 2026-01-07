@@ -76,7 +76,7 @@ jobs:
           if (Test-Path $src) { Copy-Item $src $dest } else { Write-Error "Source not found: $src"; exit 1 }
           "UPLOAD_FILE=$dest" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Prepare macOS artifact name (lowercase)
+      - name: Prepare macOS artifact name
         if: matrix.os == 'macos-latest'
         run: |
           ver=${{ env.RAW_TAG }}
