@@ -1,5 +1,6 @@
 
-# 🛠️ Drill — Multi-Platform SSH Tunnel Manager
+# <img width="60" height="60" src="https://github.com/vinceajello/drill/blob/main/resources/icon.png?raw=true" alt="drill app icon"> 🛠️ Drill — Multi-Platform SSH Tunnel Manager
+
 
 **Drill** is a lightweight, user-friendly application written in Rust that aims to make SSH tunneling approachable and painless. With an intuitive graphical interface, you can quickly configure local and remote port forwarding, manage multiple tunnels, and monitor their status in real time — all from the status bar / system tray of your preferred OS.
 
@@ -61,8 +62,40 @@ target/release/drill.exe
 
 ### macOS
 
-🚧 **Coming Soon**
-Build instructions for macOS will be added shortly.
+1. **Install Rust**
+   Download and install Rust from [rustup.rs](https://rustup.rs)
+
+2. **Clone the Repository**
+
+   ```bash
+   git clone https://github.com/vinceajello/drill.git
+   ```
+
+3. **Navigate to the Project Directory**
+
+   ```bash
+   cd drill
+   ```
+
+4. **Install cargo-packager**
+
+   ```bash
+   cargo install cargo-packager
+   ```
+
+5. **Build the macOS Application Bundle**
+
+   ```bash
+   cargo packager --release
+   ```
+
+The compiled `.app` bundle will be available in:
+
+```
+target/release/bundle/macos/
+```
+
+> **MacOS Note:** Since the app is not code-signed when built locally, macOS may prevent it from opening. If you see a security warning, go to **System Settings > Privacy & Security** and click **"Open Anyway"** to allow the app to run. Alternatively, right-click the app and select **"Open"** from the context menu.
 
 ---
 
