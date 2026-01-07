@@ -81,20 +81,33 @@ jobs:
           ver=${{ env.RAW_TAG }}
           ver=${ver#v}
           arch=$(echo "${{ matrix.target }}" | cut -d- -f1)
+          
+          # Rename DMG
           for f in target/release/bundle/*.dmg; do
             dir=$(dirname "$f")
             new="$dir/drill_${ver}_${arch}.dmg"
             mv "$f" "$new"
-            echo "UPLOAD_FILE=$new" >> $GITHUB_ENV
+            echo "DMG_FILE=$new" >> $GITHUB_ENV
           done
-
-      - name: Upload Windows release asset
-        if: matrix.os == 'windows-latest'
+          
+          # Create TAR.GZ archive of the .app bundle
+          APP_PATH=$(find target/release/bundle -name "*.app" -type d | head -n 1)
+          if [ -n "$APP_PATH" ]; then
+            TARBALL="target/release/bundle/drill_${ver}_${arch}.tar.gz"
+            tar -czf "$TARBALL" -C "$(dirname "$APP_PATH")" "$(basename "$APP_PATH")"
+            echo "TARBALL_FILE=$TARBALL" >> $GITHUB_ENV
+          fi
+      
+      - name: Upload macOS release asset
+        if: matrix.os == 'macos-latest'
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.UPLOAD_FILE }}
+          files: |
+            ${{ env.DMG_FILE }}
+            ${{ env.TARBALL_FILE }}
           fail_on_unmatched_files: true
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload macOS release asset
