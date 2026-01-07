@@ -95,7 +95,7 @@ The compiled `.app` bundle will be available in:
 target/release/bundle/macos/
 ```
 
-> **MacOS Note:** Since the app is not code-signed when built locally, macOS may prevent it from opening. If you see a security warning, go to **System Settings > Privacy & Security** and click **"Open Anyway"** to allow the app to run. Alternatively, right-click the app and select **"Open"** from the context menu.
+> **MacOS Note:** Since the app is not code-signed when built locally, macOS may prevent it from opening. If you see a security warning, go to **System Settings > Privacy & Security** and click **"Open Anyway"** to allow the app to run.
 
 ---
 
