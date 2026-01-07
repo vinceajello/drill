@@ -13,9 +13,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: target/x86_64-pc-windows-msvc/release/drill.exe
+          # - os: windows-latest
+          #   target: x86_64-pc-windows-msvc
+          #   artifact: target/x86_64-pc-windows-msvc/release/drill.exe
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: target/release/bundle/*.dmg
@@ -23,7 +23,6 @@ jobs:
     
     runs-on: ${{ matrix.os }}
     env:
-      # raw tag like "v0.1.0"
       RAW_TAG: ${{ github.ref_name }}
     
     steps:
@@ -47,6 +46,23 @@ jobs:
       - name: Build macOS bundle
         if: matrix.os == 'macos-latest'
         run: cargo packager --release
+
+      - name: Ad-hoc code signing (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          # Find the .app bundle inside the DMG or directly
+          APP_PATH=$(find target/release/bundle -name "*.app" -type d | head -n 1)
+          if [ -n "$APP_PATH" ]; then
+            echo "Ad-hoc signing $APP_PATH"
+            codesign --force --deep --sign - "$APP_PATH"
+          fi
+          
+          # Also sign the DMG
+          DMG_PATH=$(find target/release/bundle -name "*.dmg" | head -n 1)
+          if [ -n "$DMG_PATH" ]; then
+            echo "Ad-hoc signing $DMG_PATH"
+            codesign --force --sign - "$DMG_PATH"
+          fi
 
       - name: Prepare Windows artifact name
         if: matrix.os == 'windows-latest'
