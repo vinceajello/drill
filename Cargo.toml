@@ -1,13 +1,13 @@
 [package]
 name = "drill"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
-authors = ["Your Name <you@example.com>"]
+authors = ["vince ajello vince.ajello@gmail.com"]
 description = "A multi-platform application for macOS, Windows, and Linux"
 license = "MIT OR Apache-2.0"
 
 [package.metadata.packager]
-product-name = "Drill"
+product-name = "drill"
 identifier = "com.drill.app"
 category = "DeveloperTool"
 copyright = "Copyright (c) 2025. All rights reserved."
