@@ -244,35 +244,40 @@ pub fn get_tunnel_display_name(name: &str, status: TunnelStatus) -> String {
 fn create_tray_icon() -> tray_icon::Icon {
     // Create a monochromatic icon suitable for macOS menu bar (template mode)
     // Using black/white for best template rendering
-    let width = 22;  // macOS menu bar standard height
-    let height = 22;
+    let width = 32;
+    let height = 32;
     let mut rgba = Vec::with_capacity(width * height * 4);
-    
+
+    // Produce a solid, colored circular icon (green fill with slight border)
+    let cx = (width / 2) as f32;
+    let cy = (height / 2) as f32;
+    let radius = (width as f32) * 0.38; // circle radius
+    let border = (width as f32) * 0.08; // border thickness
+
     for y in 0..height {
         for x in 0..width {
-            // Create a simple "D" shape for Drill
-            let is_in_shape = {
-                // Simple circle pattern
-                let center_x = 11.0;
-                let center_y = 11.0;
-                let distance = ((x as f32 - center_x).powi(2) + (y as f32 - center_y).powi(2)).sqrt();
-                
-                // Circle with radius 8
-                distance < 8.0 && distance > 5.0
-            };
-            
-            if is_in_shape {
-                // Black for the icon shape (will be inverted by macOS in template mode)
-                rgba.push(0);    // R
-                rgba.push(0);    // G
-                rgba.push(0);    // B
-                rgba.push(255);  // A (fully opaque)
+            let dx = x as f32 - cx;
+            let dy = y as f32 - cy;
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            if dist <= radius {
+                // Inside circle: green fill
+                rgba.push(0x1a); // R (26)
+                rgba.push(0xa0); // G (160)
+                rgba.push(0x2a); // B (42)
+                rgba.push(0xff); // A
+            } else if dist <= radius + border {
+                // Slight outer border: darker green
+                rgba.push(0x10);
+                rgba.push(0x70);
+                rgba.push(0x20);
+                rgba.push(0xff);
             } else {
                 // Transparent background
-                rgba.push(0);    // R
-                rgba.push(0);    // G
-                rgba.push(0);    // B
-                rgba.push(0);    // A (transparent)
+                rgba.push(0x00);
+                rgba.push(0x00);
+                rgba.push(0x00);
+                rgba.push(0x00);
             }
         }
     }

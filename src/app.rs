@@ -56,6 +56,10 @@ pub enum Message {
     // Tunnel status monitoring
     TunnelStatusUpdate(StatusUpdate),
 
+    // GTK main loop iteration (Linux only)
+    #[cfg(target_os = "linux")]
+    GtkTick,
+
     // Window events
     WindowOpened(window::Id, WindowType),
     WindowClosed(window::Id),
@@ -180,6 +184,16 @@ impl App {
                         WindowType::new_tunnel_form_create(),
                     ))
                 })
+            }
+
+            // Drive the GTK main loop on Linux so libappindicator can show the tray icon
+            #[cfg(target_os = "linux")]
+            Message::GtkTick => {
+                // Process pending GTK events without blocking
+                while gtk::events_pending() {
+                    gtk::main_iteration_do(false);
+                }
+                Task::none()
             }
 
             Message::TunnelStatusUpdate(update) => {
@@ -487,6 +501,26 @@ impl App {
             })
         ).map(Message::TunnelStatusUpdate);
 
+        // On Linux, periodically iterate the GTK main loop so the tray icon shows up
+        #[cfg(target_os = "linux")]
+        let gtk_tick = {
+            struct GtkTickPoll;
+            Subscription::run_with_id(
+                std::any::TypeId::of::<GtkTickPoll>(),
+                iced::stream::channel(1, |mut output| async move {
+                    loop {
+                        let _ = output.send(()).await;
+                        tokio::time::sleep(tokio::time::Duration::from_millis(16)).await;
+                    }
+                }),
+            )
+            .map(|_| Message::GtkTick)
+        };
+
+        #[cfg(target_os = "linux")]
+        return Subscription::batch(vec![window_events, tray_subscription, status_subscription, gtk_tick]);
+
+        #[cfg(not(target_os = "linux"))]
         Subscription::batch(vec![window_events, tray_subscription, status_subscription])
     }
 
