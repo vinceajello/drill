@@ -50,6 +50,9 @@
 
    ```bash
    sudo apt install build-essential
+   sudo apt install libgtk-3-dev
+   sudo apt install pkg-config
+   sudo apt install libxdo-dev
    ```
 
 
