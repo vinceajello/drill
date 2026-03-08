@@ -46,7 +46,14 @@
    cd drill
    ```
 
-4. **Build the Project**
+4. **Requirements**
+
+   ```bash
+   sudo apt install build-essential
+   ```
+
+
+5. **Build the Project**
 
    ```bash
    cargo build --release
