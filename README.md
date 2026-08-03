@@ -111,8 +111,21 @@ target/release/bundle/macos/
 
 ### Linux
 
-🚧 **Coming Soon**
-Build instructions for Linux will be added shortly.
+1. **Install Dependencies** (Debian/Ubuntu example):
+
+   ```bash
+   sudo apt update
+   sudo apt install build-essential libgtk-3-dev pkg-config libxdo-dev
+   ```
+
+2. **Build and Install**:
+
+   ```bash
+   cargo build --release
+   ./install.sh
+   ```
+
+   This copies the `drill` binary to `~/.local/bin` (or `/usr/local/bin` if run with `sudo`), installs the app icon, and adds **Drill** to your application launcher/launchpad.
 
 ---
 

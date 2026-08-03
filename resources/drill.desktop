@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Drill
+Comment=Multi-Platform SSH Tunnel Manager
+Exec=drill
+Icon=drill
+Terminal=false
+Type=Application
+Categories=Network;Utility;Development;
+StartupWMClass=drill
