@@ -84,6 +84,7 @@ winresource = "0.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Linux specific dependencies
+gtk = "0.18"
 
 [profile.release]
 opt-level = 3

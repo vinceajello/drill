@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 // use std::sync::{Mutex};
 use tray_icon::menu::MenuEvent;
+#[cfg(not(target_os = "linux"))]
 use tray_icon::TrayIcon;
 
 
@@ -20,7 +21,10 @@ pub struct App {
     windows: BTreeMap<window::Id, WindowType>,
     tunnel_manager: TunnelManager,
     tunnels_file: PathBuf,
+    #[cfg(not(target_os = "linux"))]
     tray_icon: Option<TrayIcon>,
+    #[cfg(target_os = "linux")]
+    linux_tray: Option<systemtray::LinuxTrayHandle>,
     menu_ids: Option<TrayMenuIds>,
     logger: Logger,
     status_receiver: broadcast::Receiver<StatusUpdate>,
@@ -116,11 +120,21 @@ impl App {
             .iter()
             .map(|t| (t.name.clone(), tunnel_manager.get_tunnel_status(&t.name)))
             .collect();
+        #[cfg(not(target_os = "linux"))]
         let (tray_icon, menu_ids) = match systemtray::init_tray(&tunnels, &tunnel_statuses) {
             Ok((icon, ids)) => (Some(icon), Some(ids)),
             Err(e) => {
                 logger.log_print(&format!("Error initializing system tray: {}", e));
                 std::process::exit(1);
+            }
+        };
+
+        #[cfg(target_os = "linux")]
+        let (linux_tray, menu_ids) = match systemtray::spawn_linux_tray(tunnels.clone(), tunnel_statuses.clone()) {
+            Ok((handle, ids)) => (Some(handle), Some(ids)),
+            Err(e) => {
+                logger.log_print(&format!("Error initializing Linux system tray: {}", e));
+                (None, None)
             }
         };
 
@@ -131,7 +145,10 @@ impl App {
                 windows: BTreeMap::new(),
                 tunnel_manager,
                 tunnels_file,
+                #[cfg(not(target_os = "linux"))]
                 tray_icon,
+                #[cfg(target_os = "linux")]
+                linux_tray,
                 menu_ids,
                 logger,
                 status_receiver,
@@ -391,15 +408,16 @@ impl App {
             Message::TunnelFormCancel(window_id) => window::close(window_id),
 
             Message::UpdateTrayMenu => {
+                let manager = &self.tunnel_manager;
+                let tunnels = manager.get_tunnels().clone();
+                let tunnel_statuses: Vec<(String, crate::tunnels::TunnelStatus)> = manager
+                    .get_tunnels()
+                    .iter()
+                    .map(|t| (t.name.clone(), manager.get_tunnel_status(&t.name)))
+                    .collect();
+
+                #[cfg(not(target_os = "linux"))]
                 if let (Some(tray_icon), Some(_)) = (&mut self.tray_icon, &self.menu_ids) {
-                    let manager = &self.tunnel_manager;
-                    let tunnels = manager.get_tunnels().clone();
-                    let _ = manager;
-                    let tunnel_statuses: Vec<(String, crate::tunnels::TunnelStatus)> = manager
-                        .get_tunnels()
-                        .iter()
-                        .map(|t| (t.name.clone(), manager.get_tunnel_status(&t.name)))
-                        .collect();
                     match systemtray::update_tray_menu(tray_icon, &tunnels, &tunnel_statuses) {
                         Ok(new_ids) => {
                             self.menu_ids = Some(new_ids);
@@ -409,6 +427,19 @@ impl App {
                         }
                     }
                 }
+
+                #[cfg(target_os = "linux")]
+                if let (Some(linux_tray), Some(_)) = (&self.linux_tray, &self.menu_ids) {
+                    match linux_tray.update_menu(&tunnels, &tunnel_statuses) {
+                        Ok(new_ids) => {
+                            self.menu_ids = Some(new_ids);
+                        }
+                        Err(e) => {
+                            self.logger.log_print(&format!("Error updating tray menu: {}", e));
+                        }
+                    }
+                }
+
                 Task::none()
             }
         }

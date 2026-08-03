@@ -1247,6 +1247,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs 5.0.1",
+ "gtk",
  "iced",
  "iced_winit",
  "image 0.25.9",
