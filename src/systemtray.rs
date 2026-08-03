@@ -248,6 +248,11 @@ fn create_tray_icon() -> tray_icon::Icon {
     let height = 22;
     let mut rgba = Vec::with_capacity(width * height * 4);
     
+    #[cfg(target_os = "linux")]
+    let (r, g, b) = (255, 255, 255);
+    #[cfg(not(target_os = "linux"))]
+    let (r, g, b) = (0, 0, 0);
+
     for y in 0..height {
         for x in 0..width {
             // Create a simple "D" shape for Drill
@@ -262,10 +267,9 @@ fn create_tray_icon() -> tray_icon::Icon {
             };
             
             if is_in_shape {
-                // Black for the icon shape (will be inverted by macOS in template mode)
-                rgba.push(0);    // R
-                rgba.push(0);    // G
-                rgba.push(0);    // B
+                rgba.push(r);    // R
+                rgba.push(g);    // G
+                rgba.push(b);    // B
                 rgba.push(255);  // A (fully opaque)
             } else {
                 // Transparent background
