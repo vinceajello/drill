@@ -15,6 +15,8 @@ use crate::logs;
 use crate::notifications;
 use crate::platform;
 use crate::systemtray::TrayMenuIds;
+#[cfg(not(target_os = "linux"))]
+use crate::systemtray;
 #[cfg(target_os = "linux")]
 use crate::platform::TrayAdapter;
 use crate::tunnels::{StatusUpdate, TunnelManager, TunnelStatus};
