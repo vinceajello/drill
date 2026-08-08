@@ -1,5 +1,3 @@
-use crate::error::DrillResult;
-
 pub fn init_notifications() {
     #[cfg(target_os = "macos")]
     crate::platform::macos::init_notifications();
@@ -11,20 +9,18 @@ pub fn init_notifications() {
     crate::platform::windows::init_notifications();
 }
 
-pub fn notify_tunnel_connected(tunnel_name: &str) -> DrillResult<()> {
+pub fn notify_tunnel_connected(tunnel_name: &str) {
     let summary = "Drill - Tunnel Connected";
     let body = format!("Tunnel '{}' is now connected", tunnel_name);
 
     #[cfg(target_os = "macos")]
-    crate::platform::macos::show_macos_notification(summary, &body)?;
+    let _ = crate::platform::macos::show_macos_notification(summary, &body);
 
     #[cfg(target_os = "linux")]
-    crate::platform::linux::show_desktop_notification(summary, &body, "network-wired", 5000)?;
+    let _ = crate::platform::linux::show_desktop_notification(summary, &body, "network-wired", 5000);
 
     #[cfg(target_os = "windows")]
-    crate::platform::windows::show_desktop_notification(summary, &body, "network-wired", 5000)?;
-
-    Ok(())
+    let _ = crate::platform::windows::show_desktop_notification(summary, &body, "network-wired", 5000);
 }
 
 pub fn notify_tunnel_disconnected(tunnel_name: &str) {
@@ -89,7 +85,6 @@ mod tests {
 
     #[test]
     fn test_send_notification() {
-        let res = notify_tunnel_connected("test_tunnel");
-        assert!(res.is_ok());
+        notify_tunnel_connected("test_tunnel");
     }
 }

@@ -200,7 +200,7 @@ impl App {
                     }
                     StatusUpdate::Connected(ref tunnel_name) => {
                         info!("Tunnel '{}' connected successfully", tunnel_name);
-                        let _ = notifications::notify_tunnel_connected(tunnel_name);
+                        notifications::notify_tunnel_connected(tunnel_name);
                         return self.update(Message::UpdateTrayMenu);
                     }
                     StatusUpdate::Error(ref tunnel_name, ref err) => {
