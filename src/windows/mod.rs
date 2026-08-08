@@ -3,27 +3,22 @@ pub mod create_tunnel;
 
 use create_tunnel::TunnelFormState;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum FormMode {
+    #[default]
     Create,
     Edit { tunnel_id: String },
-}
-
-impl Default for FormMode {
-    fn default() -> Self {
-        FormMode::Create
-    }
 }
 
 #[derive(Debug, Clone)]
 pub enum WindowType {
     About,
-    TunnelForm(TunnelFormState),
+    TunnelForm(Box<TunnelFormState>),
 }
 
 impl WindowType {
     pub fn new_tunnel_form_create() -> Self {
-        WindowType::TunnelForm(TunnelFormState {
+        WindowType::TunnelForm(Box::new(TunnelFormState {
             mode: FormMode::Create,
             name: String::new(),
             local_host: "127.0.0.1".to_string(),
@@ -37,11 +32,11 @@ impl WindowType {
             web_url: String::new(),
             error_message: None,
             test_message: None,
-        })
+        }))
     }
 
     pub fn new_tunnel_form_edit(tunnel: &crate::tunnels::Tunnel) -> Self {
-        WindowType::TunnelForm(TunnelFormState {
+        WindowType::TunnelForm(Box::new(TunnelFormState {
             mode: FormMode::Edit { tunnel_id: tunnel.id.clone() },
             name: tunnel.name.clone(),
             local_host: tunnel.local_host.clone(),
@@ -55,6 +50,6 @@ impl WindowType {
             web_url: tunnel.web_url.clone().unwrap_or_default(),
             error_message: None,
             test_message: None,
-        })
+        }))
     }
 }

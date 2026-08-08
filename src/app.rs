@@ -14,7 +14,9 @@ use crate::config;
 use crate::logs;
 use crate::notifications;
 use crate::platform;
-use crate::systemtray::{self, TrayMenuIds};
+use crate::systemtray::TrayMenuIds;
+#[cfg(target_os = "linux")]
+use crate::platform::TrayAdapter;
 use crate::tunnels::{StatusUpdate, TunnelManager, TunnelStatus};
 use crate::windows::create_tunnel::TunnelFormField;
 use crate::windows::{self, WindowType};
@@ -169,10 +171,8 @@ impl App {
                 if let Some((window_id, _wt)) = self.windows.iter().find(|(_, wt)| {
                     matches!(
                         wt,
-                        WindowType::TunnelForm(windows::create_tunnel::TunnelFormState {
-                            mode: windows::FormMode::Create,
-                            ..
-                        })
+                        WindowType::TunnelForm(state)
+                            if matches!(state.mode, windows::FormMode::Create)
                     )
                 }) {
                     return window::gain_focus(*window_id);
@@ -264,9 +264,12 @@ impl App {
 
             Message::TunnelEdit(tunnel_name) => {
                 if let Some((window_id, _wt)) = self.windows.iter().find(|(_, wt)| {
-                    matches!(wt, WindowType::TunnelForm(windows::create_tunnel::TunnelFormState { mode: windows::FormMode::Edit { tunnel_id }, .. }) if {
-                        self.tunnel_manager.get_tunnels().iter().any(|t| t.name == tunnel_name && &t.id == tunnel_id)
-                    })
+                    matches!(
+                        wt,
+                        WindowType::TunnelForm(state)
+                            if matches!(&state.mode, windows::FormMode::Edit { tunnel_id }
+                                if self.tunnel_manager.get_tunnels().iter().any(|t| t.name == tunnel_name && &t.id == tunnel_id))
+                    )
                 }) {
                     return window::gain_focus(*window_id);
                 }
@@ -415,10 +418,7 @@ impl App {
 
     pub fn subscription(&self) -> Subscription<Message> {
         let window_events = iced::event::listen_with(|event, _status, id| match event {
-            iced::Event::Window(window_event) => match window_event {
-                iced::window::Event::Closed => Some(Message::WindowClosed(id)),
-                _ => None,
-            },
+            iced::Event::Window(iced::window::Event::Closed) => Some(Message::WindowClosed(id)),
             _ => None,
         });
 

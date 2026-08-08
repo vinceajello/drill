@@ -18,6 +18,7 @@ pub enum TunnelStatus {
         error: String,
         occurred_at: std::time::SystemTime,
     },
+    #[allow(dead_code)]
     Reconnecting {
         attempt: u32,
     },
@@ -91,9 +92,9 @@ impl TunnelManager {
         Ok(file_data.tunnels)
     }
 
-    pub fn save_tunnels(tunnels_file: &PathBuf, tunnels: &Vec<Tunnel>) -> DrillResult<()> {
+    pub fn save_tunnels(tunnels_file: &PathBuf, tunnels: &[Tunnel]) -> DrillResult<()> {
         let file_data = TunnelFile {
-            tunnels: tunnels.clone(),
+            tunnels: tunnels.to_vec(),
         };
         let toml_str = toml::to_string_pretty(&file_data)?;
         fs::write(tunnels_file, toml_str)?;
@@ -273,7 +274,7 @@ pub fn check_private_key_permissions(path_str: &str) -> DrillResult<()> {
             let mode = metadata.permissions().mode();
             // Check if group or others have read/write/execute permissions (0o077)
             if mode & 0o077 != 0 {
-                warn!("Private key '{}' permissions ({:#o}) are overly permissive. Recommended: 0600 or 0400", path_str, mode & 0o777);
+                tracing::warn!("Private key '{}' permissions ({:#o}) are overly permissive. Recommended: 0600 or 0400", path_str, mode & 0o777);
             }
         }
     }

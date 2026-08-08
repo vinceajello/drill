@@ -74,6 +74,7 @@ pub fn spawn_linux_tray(
     tunnel_statuses: Vec<(String, TunnelStatus)>,
 ) -> Result<(LinuxTrayHandle, TrayMenuIds), Box<dyn std::error::Error>> {
     let (init_tx, init_rx) = mpsc::channel::<Result<TrayMenuIds, String>>();
+    #[allow(deprecated)]
     let (sender, receiver) = gtk::glib::MainContext::channel::<LinuxTrayMsg>(gtk::glib::Priority::default());
 
     std::thread::spawn(move || {
@@ -94,7 +95,7 @@ pub fn spawn_linux_tray(
 
         // Register with GNOME StatusNotifierWatcher DBus service
         let _ = std::process::Command::new("dbus-send")
-            .args(&[
+            .args([
                 "--session",
                 "--dest=org.kde.StatusNotifierWatcher",
                 "--type=method_call",
