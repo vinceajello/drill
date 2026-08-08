@@ -22,6 +22,7 @@ pub enum WindowType {
         ssh_host: String,
         ssh_port: String,
         private_key: String,
+        web_url: String,
         error_message: Option<String>,
         test_message: Option<String>,
     },
@@ -40,6 +41,7 @@ impl WindowType {
             ssh_host: String::new(),
             ssh_port: "22".to_string(),
             private_key: String::new(),
+            web_url: String::new(),
             error_message: None,
             test_message: None,
         }
@@ -57,6 +59,7 @@ impl WindowType {
             ssh_host: tunnel.ssh_host.clone(),
             ssh_port: tunnel.ssh_port.clone(),
             private_key: tunnel.private_key.clone(),
+            web_url: tunnel.web_url.clone().unwrap_or_default(),
             error_message: None,
             test_message: None,
         }

@@ -14,6 +14,7 @@ pub enum Message {
     SshHostChanged(String),
     SshPortChanged(String),
     PrivateKeyChanged(String),
+    WebUrlChanged(String),
     BrowsePrivateKey,
     Test,
     Create,
@@ -31,6 +32,7 @@ pub fn view<'a>(
     ssh_host: &str,
     ssh_port: &str,
     private_key: &str,
+    web_url: &str,
     error_message: &'a Option<String>,
     test_message: &'a Option<String>,
 ) -> Element<'a, Message> {
@@ -122,6 +124,11 @@ pub fn view<'a>(
                 .padding(8),
         ]
         .align_y(iced::Alignment::Center),
+        text("").size(4),
+        text("Web URL (optional)").size(12),
+        text_input("e.g. http://localhost:8080", web_url)
+            .on_input(Message::WebUrlChanged)
+            .padding(8),
     ]
     .spacing(5)
     .padding(20);
@@ -183,6 +190,7 @@ pub fn validate_and_create_tunnel(
     ssh_host: &str,
     ssh_port: &str,
     private_key: &str,
+    web_url: &str,
 ) -> Result<Tunnel, String> {
     if name.trim().is_empty() {
         return Err("Name is required".to_string());
@@ -208,6 +216,17 @@ pub fn validate_and_create_tunnel(
         return Err("SSH host is required".to_string());
     }
 
+    let web_url_opt = if web_url.trim().is_empty() {
+        None
+    } else {
+        let trimmed = web_url.trim();
+        if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            Some(trimmed.to_string())
+        } else {
+            Some(format!("http://{}", trimmed))
+        }
+    };
+
     Ok(Tunnel {
         id: uuid::Uuid::new_v4().to_string(),
         name: name.to_string(),
@@ -219,6 +238,7 @@ pub fn validate_and_create_tunnel(
         ssh_host: ssh_host.to_string(),
         ssh_port: ssh_port.to_string(),
         private_key: private_key.to_string(),
+        web_url: web_url_opt,
     })
 }
 

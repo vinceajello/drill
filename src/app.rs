@@ -42,6 +42,7 @@ pub enum TunnelFormField {
     SshHost(String),
     SshPort(String),
     PrivateKey(String),
+    WebUrl(String),
 }
 
 #[derive(Debug, Clone)]
@@ -187,7 +188,7 @@ impl App {
                 }
                 // No custom icon set (icon_alpha.png usage removed)
                 let (id, open) = window::open(window::Settings {
-                    size: Size::new(500.0, 630.0),
+                    size: Size::new(500.0, 700.0),
                     resizable: false,
                     ..window::Settings::default()
                 });
@@ -258,14 +259,18 @@ impl App {
             }
 
             Message::TunnelOpenWeb(tunnel_name) => {
-                // log_print(&format!("Open web for tunnel '{}'", tunnel_name));
                 if let Some(tunnel) = self.tunnel_manager.get_tunnels().iter().find(|t| t.name == tunnel_name) {
-                    let url = format!("http://{}:{}", tunnel.local_host, tunnel.local_port);
-                    self.logger.log_print(&format!("Opening URL: {}", url));
-                        if let Err(_e) =
-                            TunnelManager::save_tunnels(&self.tunnels_file, self.tunnel_manager.get_tunnels())
-                        {
-                            self.logger.log_print(&format!("Error saving tunnels: {}", _e));
+                    if let Some(ref web_url) = tunnel.web_url {
+                        if !web_url.trim().is_empty() {
+                            self.logger.log_print(&format!("Opening Web URL: {}", web_url));
+                            if let Err(e) = open_browser_url(web_url) {
+                                self.logger.log_print(&format!("Error opening URL '{}': {}", web_url, e));
+                            }
+                        } else {
+                            self.logger.log_print(&format!("No Web URL defined for tunnel '{}'", tunnel_name));
+                        }
+                    } else {
+                        self.logger.log_print(&format!("No Web URL defined for tunnel '{}'", tunnel_name));
                     }
                 } else {
                     self.logger.log_print(&format!("Tunnel '{}' not found", tunnel_name));
@@ -373,14 +378,14 @@ impl App {
                 let extra_height = match window_type.unwrap() {
                     WindowType::TunnelForm {
                         name, local_host, local_port, remote_host, remote_port,
-                        ssh_user, ssh_host, ssh_port, private_key,
+                        ssh_user, ssh_host, ssh_port, private_key, web_url,
                         error_message, test_message, ..
                     } => {
                         *error_message = None;
                         *test_message = None;
                         match windows::create_tunnel::validate_and_create_tunnel(
                             name, local_host, local_port, remote_host, remote_port,
-                            ssh_user, ssh_host, ssh_port, private_key,
+                            ssh_user, ssh_host, ssh_port, private_key, web_url,
                         ) {
                             Ok(tunnel) => {
                                 match TunnelManager::test_tunnel(&tunnel) {
@@ -454,7 +459,7 @@ impl App {
                 WindowType::TunnelForm {
                     mode,
                     name, local_host, local_port, remote_host, remote_port,
-                    ssh_user, ssh_host, ssh_port, private_key,
+                    ssh_user, ssh_host, ssh_port, private_key, web_url,
                     error_message, test_message,
                 } => {
                     windows::create_tunnel::view(
@@ -463,6 +468,7 @@ impl App {
                         remote_host, remote_port,
                         ssh_user, ssh_host, ssh_port,
                         private_key,
+                        web_url,
                         error_message,
                         test_message,
                     )
@@ -608,6 +614,8 @@ impl App {
                 Message::TunnelFormFieldChanged(window_id, TunnelFormField::SshPort(v)),
             windows::create_tunnel::Message::PrivateKeyChanged(v) => 
                 Message::TunnelFormFieldChanged(window_id, TunnelFormField::PrivateKey(v)),
+            windows::create_tunnel::Message::WebUrlChanged(v) => 
+                Message::TunnelFormFieldChanged(window_id, TunnelFormField::WebUrl(v)),
             windows::create_tunnel::Message::BrowsePrivateKey => 
                 Message::TunnelFormBrowsePrivateKey(window_id),
             windows::create_tunnel::Message::Test => 
@@ -625,7 +633,7 @@ impl App {
             match window_type {
                 WindowType::TunnelForm {
                     name, local_host, local_port, remote_host, remote_port,
-                    ssh_user, ssh_host, ssh_port, private_key, ..
+                    ssh_user, ssh_host, ssh_port, private_key, web_url, ..
                 } => {
                     match field {
                         TunnelFormField::Name(v) => *name = v,
@@ -637,6 +645,7 @@ impl App {
                         TunnelFormField::SshHost(v) => *ssh_host = v,
                         TunnelFormField::SshPort(v) => *ssh_port = v,
                         TunnelFormField::PrivateKey(v) => *private_key = v,
+                        TunnelFormField::WebUrl(v) => *web_url = v,
                     }
                 }
                 _ => {}
@@ -654,12 +663,12 @@ impl App {
             WindowType::TunnelForm {
                 mode,
                 name, local_host, local_port, remote_host, remote_port,
-                ssh_user, ssh_host, ssh_port, private_key,
+                ssh_user, ssh_host, ssh_port, private_key, web_url,
                 error_message, ..
             } => {
                 match windows::create_tunnel::validate_and_create_tunnel(
                     name, local_host, local_port, remote_host, remote_port,
-                    ssh_user, ssh_host, ssh_port, private_key,
+                    ssh_user, ssh_host, ssh_port, private_key, web_url,
                 ) {
                     Ok(mut tunnel) => {
                         let manager = &mut self.tunnel_manager;
@@ -719,4 +728,43 @@ pub fn get_platform() -> &'static str {
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     return "Unknown";
+}
+
+pub fn open_browser_url(raw_url: &str) -> Result<(), String> {
+    let mut url = raw_url.trim().to_string();
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        url = format!("http://{}", url);
+    }
+
+    if open::that(&url).is_ok() {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let commands = [
+            ("xdg-open", vec![url.as_str()]),
+            ("gio", vec!["open", url.as_str()]),
+            ("x-www-browser", vec![url.as_str()]),
+            ("sensible-browser", vec![url.as_str()]),
+            ("firefox", vec![url.as_str()]),
+            ("google-chrome", vec![url.as_str()]),
+            ("chromium", vec![url.as_str()]),
+            ("brave-browser", vec![url.as_str()]),
+        ];
+
+        for (cmd, args) in commands {
+            if let Ok(child) = std::process::Command::new(cmd)
+                .args(&args)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                std::mem::forget(child);
+                return Ok(());
+            }
+        }
+    }
+
+    Err(format!("Could not launch browser for URL: {}", url))
 }

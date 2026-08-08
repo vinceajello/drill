@@ -58,6 +58,8 @@ pub struct Tunnel {
     pub ssh_port: String,
     #[serde(default)]
     pub private_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_url: Option<String>,
 }
 
 pub struct TunnelManager {

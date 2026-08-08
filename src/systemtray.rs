@@ -55,10 +55,14 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_statuses: &[(String, TunnelStatus
                 
                 let status = tunnel_statuses.iter().find(|(name, _)| name == &tunnel.name).map(|(_, status)| status.clone()).unwrap_or(TunnelStatus::Disconnected);
                 if matches!(status, TunnelStatus::Connected { .. }) {
-                    let open_web_item = MenuItem::new("Open Web", true, None);
-                    let open_web_id = open_web_item.id().clone();
-                    tunnel_open_web_ids.insert(tunnel.name.clone(), open_web_id);
-                    tunnel_submenu.append(&open_web_item)?;
+                    if let Some(ref web_url) = tunnel.web_url {
+                        if !web_url.trim().is_empty() {
+                            let open_web_item = MenuItem::new("Open Web", true, None);
+                            let open_web_id = open_web_item.id().clone();
+                            tunnel_open_web_ids.insert(tunnel.name.clone(), open_web_id);
+                            tunnel_submenu.append(&open_web_item)?;
+                        }
+                    }
                 }
             }
         }
@@ -169,12 +173,16 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
                 tunnel_disconnect_ids.insert(tunnel.name.clone(), disconnect_id);
                 tunnel_submenu.append(&disconnect_item)?;
                 
-                // Add "Open Web" button when connected
+                // Add "Open Web" button when connected and web_url is defined
                 if matches!(status, TunnelStatus::Connected { .. }) {
-                    let open_web_item = MenuItem::new("Open Web", true, None);
-                    let open_web_id = open_web_item.id().clone();
-                    tunnel_open_web_ids.insert(tunnel.name.clone(), open_web_id);
-                    tunnel_submenu.append(&open_web_item)?;
+                    if let Some(ref web_url) = tunnel.web_url {
+                        if !web_url.trim().is_empty() {
+                            let open_web_item = MenuItem::new("Open Web", true, None);
+                            let open_web_id = open_web_item.id().clone();
+                            tunnel_open_web_ids.insert(tunnel.name.clone(), open_web_id);
+                            tunnel_submenu.append(&open_web_item)?;
+                        }
+                    }
                 }
             }
         }
