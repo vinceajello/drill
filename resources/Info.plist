@@ -32,6 +32,9 @@
     <true/>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright (c) 2025. All rights reserved.</string>
+    <!-- Icon file -->
+    <key>CFBundleIconFile</key>
+    <string>icon.icns</string>
     <!-- Enable user notifications with alert style -->
     <key>NSUserNotificationAlertStyle</key>
     <string>alert</string>

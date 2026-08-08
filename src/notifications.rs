@@ -15,19 +15,16 @@ static INIT_SUCCESS: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
 pub fn init_notifications() {
     INIT.call_once(|| {
-        use mac_notification_sys::{get_bundle_identifier_or_default, set_application};
+        use mac_notification_sys::set_application;
         
-        // Try to get the bundle identifier, fallback to a default if not in a bundle
-        let bundle = get_bundle_identifier_or_default("com.drill.app");
+        let bundle = "com.drill.app";
         
-        match set_application(&bundle) {
+        match set_application(bundle) {
             Ok(_) => {
                 INIT_SUCCESS.store(true, Ordering::Relaxed);
-                // logger.log_print(&format!("✓ Notification system initialized with bundle: {}", bundle));
             }
             Err(_e) => {
-                // logger.log_print(&format!("⚠️  Notification initialization failed: {}", e));
-                // logger.log_print("  Notifications may not work correctly");
+
             }
         }
     });
@@ -42,27 +39,20 @@ pub fn init_notifications() {
 fn show_macos_notification(title: &str, body: &str) -> DrillResult<()> {
     use mac_notification_sys::send_notification;
     
-    // Check if initialization was successful
-    if !INIT_SUCCESS.load(Ordering::Relaxed) {
-        return Err(DrillError::Notification("Notification system not properly initialized".to_string()));
-    }
-    
-    // Send the notification
-    // First parameter: main title
-    // Second parameter: subtitle (optional)
-    // Third parameter: body text
-    // Fourth parameter: Notification object with options (optional)
-    send_notification(
-        title,
-        None,  // No subtitle
+    match send_notification(
+        &format!("drill - {}", &title),
+        None,
         body,
-        None,  // No additional options
-    ).map_err(|e| DrillError::Notification(format!("macOS notification error: {}", e)))?;
-    Ok(())
+        None,
+    ) {
+        Ok(_) => Ok(()),
+        Err(_e) => {
+            Err(DrillError::Notification(String::from("fail to send notification")))
+        }
+    }
 }
 
 pub fn notify_tunnel_connected(tunnel_name: &str) -> DrillResult<()> {
-    // logger.log_print(&format!("Showing notification: Tunnel '{}' connected", tunnel_name));
     
     #[cfg(target_os = "macos")]
     {
