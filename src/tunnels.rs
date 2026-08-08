@@ -1,33 +1,27 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::io::Write;
-use std::process::{Command, Child, Stdio};
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
-use tokio::sync::broadcast;
+use std::net::TcpListener;
+use tokio::sync::{broadcast, oneshot};
+use tracing::{info, warn, error};
 use crate::error::{DrillResult, DrillError};
 
-
-
-/// Enhanced tunnel status with error details
+/// Enhanced tunnel status with timestamp details
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunnelStatus {
     Disconnected,
     Connecting,
-    Connected { 
+    Connected {
         connected_at: std::time::SystemTime,
     },
-    Error { 
+    Error {
         error: String,
         occurred_at: std::time::SystemTime,
     },
-    #[allow(dead_code)]
     Reconnecting {
         attempt: u32,
     },
 }
-
-
 
 /// Status update events from monitoring tasks
 #[derive(Debug, Clone)]
@@ -36,13 +30,6 @@ pub enum StatusUpdate {
     Connected(String),
     Error(String, String),
     Disconnected(String),
-}
-
-/// Information about an active tunnel process
-struct ActiveTunnel {
-    process: Child,
-    #[allow(dead_code)]
-    started_at: Instant,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -62,9 +49,14 @@ pub struct Tunnel {
     pub web_url: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct TunnelFile {
+    pub tunnels: Vec<Tunnel>,
+}
+
 pub struct TunnelManager {
     tunnels: Vec<Tunnel>,
-    active_processes: HashMap<String, ActiveTunnel>,
+    cancel_txs: HashMap<String, oneshot::Sender<()>>,
     tunnel_status: HashMap<String, TunnelStatus>,
     status_tx: Option<broadcast::Sender<StatusUpdate>>,
 }
@@ -73,260 +65,150 @@ impl TunnelManager {
     pub fn new() -> Self {
         TunnelManager {
             tunnels: Vec::new(),
-            active_processes: HashMap::new(),
+            cancel_txs: HashMap::new(),
             tunnel_status: HashMap::new(),
             status_tx: None,
         }
     }
-    
-    /// Set the status update channel
+
     pub fn set_status_channel(&mut self, tx: broadcast::Sender<StatusUpdate>) {
         self.status_tx = Some(tx);
     }
 
-    /// Send a status update
     fn send_status_update(&self, update: StatusUpdate) {
         if let Some(tx) = &self.status_tx {
             let _ = tx.send(update);
         }
     }
 
-    /// Load tunnels from the tunnels file
     pub fn load_tunnels(tunnels_file: &PathBuf) -> DrillResult<Vec<Tunnel>> {
         if !tunnels_file.exists() {
-            // logger.log_print("Tunnels file not found, returning empty list");
             return Ok(Vec::new());
         }
         let content = fs::read_to_string(tunnels_file)?;
-        let tunnels: Vec<Tunnel> = serde_yaml::from_str(&content)?;
-        // logger.log_print(&format!("Loaded {} tunnel(s)", tunnels.len()));
-        Ok(tunnels)
+        let file_data: TunnelFile = toml::from_str(&content)?;
+        info!("Loaded {} tunnel(s) from TOML", file_data.tunnels.len());
+        Ok(file_data.tunnels)
     }
 
-    /// Save tunnels to the tunnels file
     pub fn save_tunnels(tunnels_file: &PathBuf, tunnels: &Vec<Tunnel>) -> DrillResult<()> {
-        let yaml = serde_yaml::to_string(tunnels)?;
-        let mut file = fs::File::create(tunnels_file)?;
-        file.write_all(yaml.as_bytes())?;
-        // logger.log_print(&format!("Saved {} tunnel(s)", tunnels.len()));
+        let file_data = TunnelFile {
+            tunnels: tunnels.clone(),
+        };
+        let toml_str = toml::to_string_pretty(&file_data)?;
+        fs::write(tunnels_file, toml_str)?;
+        info!("Saved {} tunnel(s) to TOML", tunnels.len());
         Ok(())
     }
 
-    /// Set the tunnels for this manager
     pub fn set_tunnels(&mut self, tunnels: Vec<Tunnel>) {
         self.tunnels = tunnels;
     }
 
-    /// Get all tunnels
     pub fn get_tunnels(&self) -> &Vec<Tunnel> {
         &self.tunnels
     }
 
-    /// Add a new tunnel
     pub fn add_tunnel(&mut self, tunnel: Tunnel) {
         self.tunnels.push(tunnel);
     }
 
-    /// Update an existing tunnel by ID
     pub fn update_tunnel(&mut self, tunnel_id: &str, updated_tunnel: Tunnel) -> DrillResult<()> {
-        // Find tunnel by ID
         if let Some(index) = self.tunnels.iter().position(|t| t.id == tunnel_id) {
-            // If tunnel is active, we may need to restart it with new settings
-            let _old_name = self.tunnels[index].name.clone();
-            
-            // Update the tunnel
             self.tunnels[index] = updated_tunnel;
-            
-            // logger.log_print(&format!("Tunnel with ID '{}' updated", tunnel_id));
             Ok(())
         } else {
             Err(DrillError::Tunnel(format!("Tunnel with ID '{}' not found", tunnel_id)))
         }
     }
 
-    /// Check if a tunnel is active
     pub fn is_tunnel_active(&self, tunnel_name: &str) -> bool {
-        self.active_processes.contains_key(tunnel_name)
+        self.cancel_txs.contains_key(tunnel_name)
     }
 
-    /// Get the status of a tunnel
     pub fn get_tunnel_status(&self, tunnel_name: &str) -> TunnelStatus {
         self.tunnel_status.get(tunnel_name).cloned().unwrap_or(TunnelStatus::Disconnected)
     }
 
-    /// Start a tunnel with comprehensive error monitoring
-    pub fn start_tunnel(&mut self, tunnel: &Tunnel) -> DrillResult<()> {
-        if self.active_processes.contains_key(&tunnel.name) {
-            // logger.log_print(&format!("Tunnel '{}' is already active", tunnel.name));
-            return Ok(());
-        }
-
-        // Set status to connecting
-        self.tunnel_status.insert(tunnel.name.clone(), TunnelStatus::Connecting);
-        // Send status update
-        self.send_status_update(StatusUpdate::Connecting(tunnel.name.clone()));
-
-        // Build SSH command with enhanced error detection
-        let local_forward = format!(
-            "{}:{}:{}",
-            tunnel.local_port, tunnel.remote_host, tunnel.remote_port
-        );
-        let remote = format!("{}@{}", tunnel.ssh_user, tunnel.ssh_host);
-
-        // logger.log_print(&format!(
-        //     "Starting tunnel '{}': ssh -L {} -N -p {} {}",
-        //     tunnel.name, local_forward, tunnel.ssh_port, remote
-        // ));
-
-        let mut command = Command::new("ssh");
-        // Add private key if provided
-        if !tunnel.private_key.trim().is_empty() {
-            command.arg("-i").arg(&tunnel.private_key);
-        }
-        command
-            .arg("-L")
-            .arg(&local_forward)
-            .arg("-N") // Don't execute remote command
-            .arg("-v") // Verbose mode for better error messages
-            .arg("-o")
-            .arg("ServerAliveInterval=60")
-            .arg("-o")
-            .arg("ServerAliveCountMax=3")
-            .arg("-o")
-            .arg("ExitOnForwardFailure=yes") // Exit if port forwarding fails
-            .arg("-o")
-            .arg("ConnectTimeout=10") // 10 second connection timeout
-            .arg("-p")
-            .arg(&tunnel.ssh_port)
-            .arg(&remote)
-            .stderr(Stdio::piped()) // Capture stderr for error detection
-            .stdout(Stdio::null())
-            .stdin(Stdio::null());
-
-        // On Windows, suppress terminal window
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
-
-        match command.spawn() {
-            Ok(mut child) => {
-                let tunnel_name = tunnel.name.clone();
-                let _process_id = child.id();
-                let _stderr = child.stderr.take();
-                let active_tunnel = ActiveTunnel {
-                    process: child,
-                    started_at: Instant::now(),
-                };
-                self.active_processes.insert(tunnel_name.clone(), active_tunnel);
-
-                // Initial connection verification (give it a moment to start)
-                std::thread::sleep(Duration::from_millis(500));
-
-                // Check if process is still running
-                if let Some(active) = self.active_processes.get_mut(&tunnel_name) {
-                    match active.process.try_wait() {
-                        Ok(Some(status)) => {
-                            // Process already exited
-                            self.active_processes.remove(&tunnel_name);
-                            let error = DrillError::SshProcess(format!("Process exited immediately with status: {}", status));
-                            self.tunnel_status.insert(
-                                tunnel_name.clone(),
-                                TunnelStatus::Error {
-                                    error: error.to_string(),
-                                    occurred_at: std::time::SystemTime::now(),
-                                }
-                            );
-                            self.send_status_update(StatusUpdate::Error(tunnel_name.clone(), DrillError::SshProcess(error.to_string()).to_string()));
-                            // logger.log_print(&format!("Error starting tunnel '{}': {}", tunnel_name, error));
-                            return Err(error);
-                        }
-                        Ok(None) => {
-                            // Process is running - mark as connected
-                            self.tunnel_status.insert(
-                                tunnel_name.clone(),
-                                TunnelStatus::Connected {
-                                    connected_at: std::time::SystemTime::now(),
-                                }
-                            );
-                            self.send_status_update(StatusUpdate::Connected(tunnel_name.clone()));
-                            // logger.log_print(&format!("Tunnel '{}' started successfully (PID: {})", tunnel_name, process_id));
-                        }
-                        Err(_e) => {
-                            // logger.log_print(&format!("Error checking tunnel status: {}", _e));
-                        }
-                    }
-                }
-                Ok(())
+    pub fn update_status_from_event(&mut self, update: &StatusUpdate) {
+        match update {
+            StatusUpdate::Connecting(name) => {
+                self.tunnel_status.insert(name.clone(), TunnelStatus::Connecting);
             }
-            Err(e) => {
-                // Set status to error
-                let error = DrillError::SshProcess(e.to_string());
-                self.tunnel_status.insert(
-                    tunnel.name.clone(),
-                    TunnelStatus::Error {
-                        error: error.to_string(),
-                        occurred_at: std::time::SystemTime::now(),
-                    }
-                );
-                self.send_status_update(StatusUpdate::Error(tunnel.name.clone(), error.to_string()));
-                // logger.log_print(&format!("Error starting tunnel '{}': {}", tunnel.name, e));
-                Err(error)
+            StatusUpdate::Connected(name) => {
+                self.tunnel_status.insert(name.clone(), TunnelStatus::Connected {
+                    connected_at: std::time::SystemTime::now(),
+                });
+            }
+            StatusUpdate::Error(name, err) => {
+                self.cancel_txs.remove(name);
+                self.tunnel_status.insert(name.clone(), TunnelStatus::Error {
+                    error: err.clone(),
+                    occurred_at: std::time::SystemTime::now(),
+                });
+            }
+            StatusUpdate::Disconnected(name) => {
+                self.cancel_txs.remove(name);
+                self.tunnel_status.insert(name.clone(), TunnelStatus::Disconnected);
             }
         }
     }
-    
 
-    /// Stop a tunnel
+    pub fn start_tunnel(&mut self, tunnel: &Tunnel) -> DrillResult<()> {
+        if self.cancel_txs.contains_key(&tunnel.name) {
+            info!("Tunnel '{}' is already running", tunnel.name);
+            return Ok(());
+        }
+
+        let Some(status_tx) = self.status_tx.clone() else {
+            return Err(DrillError::Tunnel("Status broadcast channel not configured".to_string()));
+        };
+
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        self.cancel_txs.insert(tunnel.name.clone(), cancel_tx);
+        self.tunnel_status.insert(tunnel.name.clone(), TunnelStatus::Connecting);
+        self.send_status_update(StatusUpdate::Connecting(tunnel.name.clone()));
+
+        let tunnel_clone = tunnel.clone();
+        tokio::spawn(async move {
+            run_tunnel_supervisor(tunnel_clone, status_tx, cancel_rx).await;
+        });
+
+        Ok(())
+    }
+
     pub fn stop_tunnel(&mut self, tunnel_name: &str) -> DrillResult<()> {
-        if let Some(mut active) = self.active_processes.remove(tunnel_name) {
-            // Kill the process
-            let _ = active.process.kill();
-            // Set status to disconnected
+        if let Some(cancel_tx) = self.cancel_txs.remove(tunnel_name) {
+            let _ = cancel_tx.send(());
             self.tunnel_status.insert(tunnel_name.to_string(), TunnelStatus::Disconnected);
-            // Send status update
             self.send_status_update(StatusUpdate::Disconnected(tunnel_name.to_string()));
-            // logger.log_print(&format!("Tunnel '{}' disconnected", tunnel_name));
-        } else {
-            // logger.log_print(&format!("Tunnel '{}' is not active", tunnel_name));
+            info!("Tunnel '{}' cancel signal sent", tunnel_name);
         }
         Ok(())
     }
 
-    /// Remove a tunnel by name
     pub fn remove_tunnel(&mut self, tunnel_name: &str) -> DrillResult<()> {
-        // First, stop the tunnel if it's active
         if self.is_tunnel_active(tunnel_name) {
             self.stop_tunnel(tunnel_name)?;
         }
 
-        // Remove from tunnels list
         if let Some(index) = self.tunnels.iter().position(|t| t.name == tunnel_name) {
             self.tunnels.remove(index);
-            // logger.log_print(&format!("Tunnel '{}' removed", tunnel_name));
             Ok(())
         } else {
             Err(DrillError::Tunnel(format!("Tunnel '{}' not found", tunnel_name)))
         }
     }
 
-    /// Test SSH connection without creating a tunnel
     pub fn test_tunnel(tunnel: &Tunnel) -> DrillResult<String> {
         let remote = format!("{}@{}", tunnel.ssh_user, tunnel.ssh_host);
-        
-        // log_print(&format!("Testing SSH connection to {} on port {}", remote, tunnel.ssh_port));
+        let mut command = std::process::Command::new("ssh");
 
-        // Use ssh with -o BatchMode=yes to avoid interactive prompts
-        // and -o ConnectTimeout=5 to timeout quickly
-        let mut command = Command::new("ssh");
-        
-        // Add private key if provided
         if !tunnel.private_key.trim().is_empty() {
+            check_private_key_permissions(&tunnel.private_key)?;
             command.arg("-i").arg(&tunnel.private_key);
         }
-        
+
         command
             .arg("-o")
             .arg("BatchMode=yes")
@@ -336,9 +218,8 @@ impl TunnelManager {
             .arg(&tunnel.ssh_port)
             .arg(&remote)
             .arg("echo")
-            .arg("'SSH connection test successful'");
+            .arg("SSH connection test successful");
 
-        // On Windows, suppress terminal window
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -349,26 +230,20 @@ impl TunnelManager {
         match command.output() {
             Ok(output) => {
                 if output.status.success() {
-                    // logger.log_print(&format!("SSH connection test to {} succeeded", remote));
                     Ok("\u{2713} SSH connection successful! You can now create the tunnel.".to_string())
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    // logger.log_print(&format!("SSH connection test to {} failed: {}", remote, stderr));
                     Err(DrillError::SshProcess(format!("SSH connection failed: {}", stderr.trim())))
                 }
             }
-            Err(e) => {
-                // logger.log_print(&format!("Error testing SSH connection to {}: {}", remote, e));
-                Err(DrillError::SshProcess(format!("Error testing SSH connection: {}", e)))
-            }
+            Err(e) => Err(DrillError::SshProcess(format!("Error testing SSH connection: {}", e))),
         }
     }
 
-    /// Clean up all active tunnels
     pub fn cleanup(&mut self) {
-        for (_name, mut active) in self.active_processes.drain() {
-            let _ = active.process.kill();
-            // logger.log_print(&format!("Stopped tunnel '{}' during cleanup", name));
+        for (name, cancel_tx) in self.cancel_txs.drain() {
+            let _ = cancel_tx.send(());
+            info!("Stopped tunnel '{}' during cleanup", name);
         }
     }
 }
@@ -376,5 +251,192 @@ impl TunnelManager {
 impl Drop for TunnelManager {
     fn drop(&mut self) {
         self.cleanup();
+    }
+}
+
+/// Check if a local TCP port is available for binding
+pub fn is_port_available(host: &str, port: u16) -> bool {
+    TcpListener::bind((host, port)).is_ok()
+}
+
+/// Verify private key permissions on Unix platforms (warn if overly permissive)
+pub fn check_private_key_permissions(path_str: &str) -> DrillResult<()> {
+    let path = std::path::Path::new(path_str);
+    if !path.exists() {
+        return Err(DrillError::Config(format!("Private key file does not exist: {}", path_str)));
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(path) {
+            let mode = metadata.permissions().mode();
+            // Check if group or others have read/write/execute permissions (0o077)
+            if mode & 0o077 != 0 {
+                warn!("Private key '{}' permissions ({:#o}) are overly permissive. Recommended: 0600 or 0400", path_str, mode & 0o777);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Async SSH tunnel process supervisor task
+pub async fn run_tunnel_supervisor(
+    tunnel: Tunnel,
+    status_tx: broadcast::Sender<StatusUpdate>,
+    mut cancel_rx: oneshot::Receiver<()>,
+) {
+    let port_num: u16 = match tunnel.local_port.parse() {
+        Ok(p) => p,
+        Err(_) => {
+            let _ = status_tx.send(StatusUpdate::Error(
+                tunnel.name.clone(),
+                format!("Invalid local port number: {}", tunnel.local_port),
+            ));
+            return;
+        }
+    };
+
+    let bind_host = if tunnel.local_host.trim().is_empty() {
+        "127.0.0.1"
+    } else {
+        tunnel.local_host.trim()
+    };
+
+    if !is_port_available(bind_host, port_num) {
+        let _ = status_tx.send(StatusUpdate::Error(
+            tunnel.name.clone(),
+            format!("Local port {}:{} is already in use", bind_host, port_num),
+        ));
+        return;
+    }
+
+    if !tunnel.private_key.trim().is_empty() {
+        if let Err(e) = check_private_key_permissions(&tunnel.private_key) {
+            let _ = status_tx.send(StatusUpdate::Error(tunnel.name.clone(), e.to_string()));
+            return;
+        }
+    }
+
+    let local_forward = format!(
+        "{}:{}:{}:{}",
+        bind_host, tunnel.local_port, tunnel.remote_host, tunnel.remote_port
+    );
+    let remote = format!("{}@{}", tunnel.ssh_user, tunnel.ssh_host);
+
+    let mut cmd = tokio::process::Command::new("ssh");
+
+    if !tunnel.private_key.trim().is_empty() {
+        cmd.arg("-i").arg(&tunnel.private_key);
+    }
+
+    cmd.args([
+        "-L",
+        &local_forward,
+        "-N",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "ServerAliveInterval=30",
+        "-o",
+        "ServerAliveCountMax=3",
+        "-o",
+        "ConnectTimeout=10",
+        "-p",
+        &tunnel.ssh_port,
+        &remote,
+    ]);
+
+    cmd.stderr(std::process::Stdio::piped());
+
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = status_tx.send(StatusUpdate::Error(
+                tunnel.name.clone(),
+                format!("Failed to spawn SSH process: {}", e),
+            ));
+            return;
+        }
+    };
+
+    let stderr_pipe = child.stderr.take();
+
+    info!("SSH tunnel supervisor spawned for '{}': ssh -L {} -N -p {} {}", tunnel.name, local_forward, tunnel.ssh_port, remote);
+    let _ = status_tx.send(StatusUpdate::Connected(tunnel.name.clone()));
+
+    tokio::select! {
+        _ = &mut cancel_rx => {
+            info!("Received cancellation for tunnel '{}'", tunnel.name);
+            let _ = child.kill().await;
+            let _ = status_tx.send(StatusUpdate::Disconnected(tunnel.name));
+        }
+        status = child.wait() => {
+            let mut stderr_buf = String::new();
+            if let Some(mut stderr) = stderr_pipe {
+                let _ = tokio::io::AsyncReadExt::read_to_string(&mut stderr, &mut stderr_buf).await;
+            }
+            let stderr_clean = stderr_buf.trim();
+
+            let err_msg = match status {
+                Ok(exit_code) => {
+                    if stderr_clean.is_empty() {
+                        format!("SSH process exited with code {}", exit_code)
+                    } else {
+                        format!("SSH error (code {}): {}", exit_code, stderr_clean)
+                    }
+                }
+                Err(e) => format!("SSH process wait error: {}", e),
+            };
+            error!("Tunnel '{}' ended unexpectedly: {}", tunnel.name, err_msg);
+            let _ = status_tx.send(StatusUpdate::Error(tunnel.name, err_msg));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_port_available() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(!is_port_available("127.0.0.1", port));
+        drop(listener);
+        assert!(is_port_available("127.0.0.1", port));
+    }
+
+    #[test]
+    fn test_tunnel_toml_serialization() {
+        let tunnel = Tunnel {
+            id: "123".to_string(),
+            name: "Test Tunnel".to_string(),
+            local_host: "127.0.0.1".to_string(),
+            local_port: "8080".to_string(),
+            remote_host: "10.0.0.1".to_string(),
+            remote_port: "80".to_string(),
+            ssh_user: "user".to_string(),
+            ssh_host: "example.com".to_string(),
+            ssh_port: "22".to_string(),
+            private_key: "".to_string(),
+            web_url: Some("http://localhost:8080".to_string()),
+        };
+        let file_data = TunnelFile {
+            tunnels: vec![tunnel],
+        };
+        let toml_str = toml::to_string_pretty(&file_data).unwrap();
+        assert!(toml_str.contains("Test Tunnel"));
+
+        let deserialized: TunnelFile = toml::from_str(&toml_str).unwrap();
+        assert_eq!(deserialized.tunnels.len(), 1);
+        assert_eq!(deserialized.tunnels[0].name, "Test Tunnel");
     }
 }

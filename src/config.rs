@@ -1,85 +1,105 @@
 use std::fs;
-use std::path::PathBuf;
 use std::io::Write;
-use crate::logs::Logger;
-use crate::error::{DrillResult, DrillError};
+use std::path::PathBuf;
+use tracing::info;
+use crate::error::DrillResult;
+use crate::platform::get_project_dirs;
 
-/// Initialize the application configuration directory and files
-/// Returns the path to the config file and a Logger
-pub fn init_config() -> DrillResult<(PathBuf, Logger)> {
-    // Get home directory
-    let home_dir = dirs::home_dir()
-        .ok_or_else(|| DrillError::Config("Could not determine home directory".to_string()))?;
-    
-    // Create .drill directory path
-    let drill_dir = home_dir.join(".drill");
-    
-    // Check if .drill directory exists, create if not
-    if !drill_dir.exists() {
-        println!("Creating .drill directory at: {}", drill_dir.display());
-        fs::create_dir_all(&drill_dir)?;
-        
-        // Create logs directory
-        let logs_dir = drill_dir.join("logs");
-        println!("Creating logs directory at: {}", logs_dir.display());
-        fs::create_dir_all(&logs_dir)?;
-    }
-    
-    // Initialize log file
-    let logs_dir = drill_dir.join("logs");
-    if !logs_dir.exists() {
-        fs::create_dir_all(&logs_dir)?;
-    }
-    
-    let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
-    let log_file_path = logs_dir.join(format!("drill_{}.log", timestamp));
-    let log_file = fs::File::create(&log_file_path)?;
-    
-    // Initialize the logger
-    let mut logger = Logger::new(log_file);
-    
-    // Create config file path
-    let config_file = drill_dir.join("config");
-    
-    // Check if config file exists, create if not
+/// Initialize the application configuration directory and log files.
+/// Returns (config_file_path, logs_dir_path).
+pub fn init_config() -> DrillResult<(PathBuf, PathBuf)> {
+    let proj_dirs = get_project_dirs()?;
+    let config_dir = proj_dirs.config_dir();
+    let data_dir = proj_dirs.data_local_dir();
+    let logs_dir = data_dir.join("logs");
+
+    // Ensure directories exist
+    fs::create_dir_all(config_dir)?;
+    fs::create_dir_all(&logs_dir)?;
+
+    // Handle legacy ~/.drill migration if present BEFORE creating default empty tunnels.toml
+    migrate_legacy_config(config_dir)?;
+
+    let config_file = config_dir.join("config.toml");
     if !config_file.exists() {
-        logger.log_print(&format!("Creating default config file at: {}", config_file.display()));
+        info!("Creating default configuration file at {}", config_file.display());
         let mut file = fs::File::create(&config_file)?;
-        // Write default configuration
         let default_config = r#"# Drill Configuration File
-# Add your configuration settings here
 
 [settings]
-# Example setting
-# key=value
+server_alive_interval = 30
+server_alive_count_max = 3
+connect_timeout = 10
 "#;
         file.write_all(default_config.as_bytes())?;
     } else {
-        logger.log_print(&format!("Config file found at: {}", config_file.display()));
-        // Load existing config (for now just read it)
-        let _config_content = fs::read_to_string(&config_file)?;
+        info!("Config file found at {}", config_file.display());
     }
 
-    // Create tunnels file path
-    let tunnels_file = drill_dir.join("tunnels");
-    
-    // Check if tunnels file exists, create if not
+    let tunnels_file = config_dir.join("tunnels.toml");
     if !tunnels_file.exists() {
-        logger.log_print(&format!("Creating default tunnels file at: {}", tunnels_file.display()));
+        info!("Creating default tunnels file at {}", tunnels_file.display());
         let mut file = fs::File::create(&tunnels_file)?;
-        // Write default empty tunnels array in YAML format
-        let default_tunnels = "[]\n";
-        file.write_all(default_tunnels.as_bytes())?;
+        file.write_all(b"tunnels = []\n")?;
     } else {
-        logger.log_print(&format!("Tunnels file found at: {}", tunnels_file.display()));
+        info!("Tunnels file found at {}", tunnels_file.display());
     }
-    Ok((config_file, logger))
+
+    Ok((config_file, logs_dir))
 }
 
-/// Get the path to the tunnels file
+/// Get path to tunnels.toml file
 pub fn get_tunnels_file_path() -> DrillResult<PathBuf> {
-    let home_dir = dirs::home_dir()
-        .ok_or_else(|| DrillError::Config("Could not determine home directory".to_string()))?;
-    let drill_dir = home_dir.join(".drill");
-    Ok(drill_dir.join("tunnels"))
+    let proj_dirs = get_project_dirs()?;
+    Ok(proj_dirs.config_dir().join("tunnels.toml"))
+}
+
+/// Migrate legacy `~/.drill` configuration and tunnels if present
+fn migrate_legacy_config(target_config_dir: &std::path::Path) -> DrillResult<()> {
+    let home_dir = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Ok(()),
+    };
+
+    let legacy_dir = home_dir.join(".drill");
+    if !legacy_dir.exists() {
+        return Ok(());
+    }
+
+    let legacy_tunnels = legacy_dir.join("tunnels");
+    let target_tunnels = target_config_dir.join("tunnels.toml");
+
+    // Check if target tunnels doesn't exist or is currently empty
+    let should_migrate = if !target_tunnels.exists() {
+        true
+    } else if let Ok(existing_content) = fs::read_to_string(&target_tunnels) {
+        if let Ok(file_data) = toml::from_str::<crate::tunnels::TunnelFile>(&existing_content) {
+            file_data.tunnels.is_empty()
+        } else {
+            true
+        }
+    } else {
+        true
+    };
+
+    if legacy_tunnels.exists() && should_migrate {
+        info!("Migrating legacy configuration from {}", legacy_dir.display());
+        if let Ok(content) = fs::read_to_string(&legacy_tunnels) {
+            // Attempt to parse legacy YAML or JSON tunnels
+            let tunnels_res = serde_yaml::from_str::<Vec<crate::tunnels::Tunnel>>(&content)
+                .or_else(|_| serde_json::from_str::<Vec<crate::tunnels::Tunnel>>(&content));
+
+            if let Ok(tunnels) = tunnels_res {
+                if !tunnels.is_empty() {
+                    let toml_struct = crate::tunnels::TunnelFile { tunnels };
+                    if let Ok(toml_str) = toml::to_string_pretty(&toml_struct) {
+                        let _ = fs::write(&target_tunnels, toml_str);
+                        info!("Successfully migrated {} legacy tunnels to TOML at {}", toml_struct.tunnels.len(), target_tunnels.display());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }

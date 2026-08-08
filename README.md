@@ -122,7 +122,13 @@ target/release/bundle/macos/
 
    ```bash
    cargo build --release
-   ./install.sh
+   ./linux/installer.sh install
+   ```
+
+3. **Uninstall**:
+
+   ```bash
+   ./linux/installer.sh uninstall
    ```
 
    This copies the `drill` binary to `~/.local/bin` (or `/usr/local/bin` if run with `sudo`), installs the app icon, and adds **Drill** to your application launcher/launchpad.

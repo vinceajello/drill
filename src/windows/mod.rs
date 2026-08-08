@@ -1,36 +1,29 @@
 pub mod about;
 pub mod create_tunnel;
 
-#[derive(Debug, Clone)]
+use create_tunnel::TunnelFormState;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormMode {
     Create,
     Edit { tunnel_id: String },
 }
 
+impl Default for FormMode {
+    fn default() -> Self {
+        FormMode::Create
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum WindowType {
     About,
-    TunnelForm {
-        mode: FormMode,
-        name: String,
-        local_host: String,
-        local_port: String,
-        remote_host: String,
-        remote_port: String,
-        ssh_user: String,
-        ssh_host: String,
-        ssh_port: String,
-        private_key: String,
-        web_url: String,
-        error_message: Option<String>,
-        test_message: Option<String>,
-    },
+    TunnelForm(TunnelFormState),
 }
 
 impl WindowType {
     pub fn new_tunnel_form_create() -> Self {
-        WindowType::TunnelForm {
+        WindowType::TunnelForm(TunnelFormState {
             mode: FormMode::Create,
             name: String::new(),
             local_host: "127.0.0.1".to_string(),
@@ -44,11 +37,11 @@ impl WindowType {
             web_url: String::new(),
             error_message: None,
             test_message: None,
-        }
+        })
     }
 
     pub fn new_tunnel_form_edit(tunnel: &crate::tunnels::Tunnel) -> Self {
-        WindowType::TunnelForm {
+        WindowType::TunnelForm(TunnelFormState {
             mode: FormMode::Edit { tunnel_id: tunnel.id.clone() },
             name: tunnel.name.clone(),
             local_host: tunnel.local_host.clone(),
@@ -62,6 +55,6 @@ impl WindowType {
             web_url: tunnel.web_url.clone().unwrap_or_default(),
             error_message: None,
             test_message: None,
-        }
+        })
     }
 }

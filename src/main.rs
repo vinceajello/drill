@@ -2,19 +2,19 @@
 
 mod app;
 mod config;
+mod error;
 mod logs;
 mod notifications;
+mod platform;
 mod systemtray;
 mod tunnels;
 mod windows;
-mod error;
 
 use app::App;
 
 fn main() -> iced::Result {
-    // Initialize the notification system
     notifications::init_notifications();
-    
+
     iced::daemon(App::title_fn, App::update_fn, App::view_fn)
         .subscription(App::subscription_fn)
         .run_with(|| {
@@ -22,5 +22,3 @@ fn main() -> iced::Result {
             (app, task)
         })
 }
-
-
