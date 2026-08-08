@@ -1,8 +1,11 @@
 use directories::ProjectDirs;
 use crate::error::{DrillError, DrillResult};
+#[cfg(target_os = "linux")]
 use crate::tunnels::{Tunnel, TunnelStatus};
+#[cfg(target_os = "linux")]
 use crate::systemtray::TrayMenuIds;
 
+#[cfg(target_os = "linux")]
 pub trait TrayAdapter: Send + Sync {
     fn update_menu(&mut self, tunnels: &[Tunnel], statuses: &[(String, TunnelStatus)]) -> DrillResult<TrayMenuIds>;
 }

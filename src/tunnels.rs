@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::net::TcpListener;
 use tokio::sync::{broadcast, oneshot};
-use tracing::{info, warn, error};
+use tracing::{info, error};
 use crate::error::{DrillResult, DrillError};
 
 /// Enhanced tunnel status with timestamp details
