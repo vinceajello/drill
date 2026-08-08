@@ -17,18 +17,13 @@ pub fn init_notifications() {
     INIT.call_once(|| {
         use mac_notification_sys::{get_bundle_identifier_or_default, set_application};
         
-        // Try to get the bundle identifier, fallback to a default if not in a bundle
         let bundle = get_bundle_identifier_or_default("com.drill.app");
         
         match set_application(&bundle) {
             Ok(_) => {
                 INIT_SUCCESS.store(true, Ordering::Relaxed);
-                // logger.log_print(&format!("✓ Notification system initialized with bundle: {}", bundle));
             }
-            Err(_e) => {
-                // logger.log_print(&format!("⚠️  Notification initialization failed: {}", e));
-                // logger.log_print("  Notifications may not work correctly");
-            }
+            Err(_e) => {}
         }
     });
 }
@@ -42,28 +37,53 @@ pub fn init_notifications() {
 fn show_macos_notification(title: &str, body: &str) -> DrillResult<()> {
     use mac_notification_sys::send_notification;
     
-    // Check if initialization was successful
     if !INIT_SUCCESS.load(Ordering::Relaxed) {
         return Err(DrillError::Notification("Notification system not properly initialized".to_string()));
     }
     
-    // Send the notification
-    // First parameter: main title
-    // Second parameter: subtitle (optional)
-    // Third parameter: body text
-    // Fourth parameter: Notification object with options (optional)
     send_notification(
         title,
-        None,  // No subtitle
+        None,
         body,
-        None,  // No additional options
+        None,
     ).map_err(|e| DrillError::Notification(format!("macOS notification error: {}", e)))?;
     Ok(())
 }
 
+#[cfg(not(target_os = "macos"))]
+fn show_desktop_notification(summary: &str, body: &str, icon: &str, timeout_ms: u32) -> DrillResult<()> {
+    let mut notif = Notification::new();
+    notif
+        .appname("Drill")
+        .summary(summary)
+        .body(body)
+        .timeout(Timeout::Milliseconds(timeout_ms));
+
+    if !icon.is_empty() {
+        notif.icon(icon);
+    }
+
+    match notif.show() {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            #[cfg(target_os = "linux")]
+            {
+                let mut cmd = std::process::Command::new("notify-send");
+                cmd.arg(summary).arg(body);
+                if !icon.is_empty() {
+                    cmd.arg("-i").arg(icon);
+                }
+                cmd.arg("-t").arg(timeout_ms.to_string());
+                if let Ok(_) = cmd.spawn() {
+                    return Ok(());
+                }
+            }
+            Err(DrillError::Notification(format!("Notification error: {}", e)))
+        }
+    }
+}
+
 pub fn notify_tunnel_connected(tunnel_name: &str) -> DrillResult<()> {
-    // logger.log_print(&format!("Showing notification: Tunnel '{}' connected", tunnel_name));
-    
     #[cfg(target_os = "macos")]
     {
         show_macos_notification(
@@ -74,133 +94,103 @@ pub fn notify_tunnel_connected(tunnel_name: &str) -> DrillResult<()> {
     
     #[cfg(not(target_os = "macos"))]
     {
-        Notification::new()
-            .summary("Drill - Tunnel Connected")
-            .body(&format!("Tunnel '{}' is now connected", tunnel_name))
-            .icon("network-wired")
-            .timeout(Timeout::Milliseconds(5000))
-            .show()
-            .map_err(|e| DrillError::Notification(format!("Notification error: {}", e)))?;
+        show_desktop_notification(
+            "Drill - Tunnel Connected",
+            &format!("Tunnel '{}' is now connected", tunnel_name),
+            "network-wired",
+            5000,
+        )?;
     }
     Ok(())
 }
 
 pub fn notify_tunnel_disconnected(tunnel_name: &str) {
-    // logger.log_print(&format!("Showing notification: Tunnel '{}' disconnected", tunnel_name));
-    
     #[cfg(target_os = "macos")]
     {
-        match show_macos_notification(
+        let _ = show_macos_notification(
             "Tunnel Disconnected",
             &format!("Tunnel '{}' has been disconnected", tunnel_name)
-        ) {
-            Ok(_) => {},
-            Err(_) => {},
-            // Err(e) => logger.log_print(&format!("Error showing notification: {}", e)),
-        }
+        );
     }
     
     #[cfg(not(target_os = "macos"))]
     {
-            match Notification::new()
-                .summary("Drill - Tunnel Disconnected")
-                .body(&format!("Tunnel '{}' has been disconnected", tunnel_name))
-                .icon("network-offline")
-                .timeout(Timeout::Milliseconds(5000))
-                .show()
-            {
-                Ok(_) => {},
-                Err(_) => {},
-            }
+        let _ = show_desktop_notification(
+            "Drill - Tunnel Disconnected",
+            &format!("Tunnel '{}' has been disconnected", tunnel_name),
+            "network-offline",
+            5000,
+        );
     }
 }
 
 pub fn notify_tunnel_error(tunnel_name: &str, error_message: &str) {
-    // logger.log_print(&format!("Showing notification: Tunnel '{}' error - {}", tunnel_name, error_message));
-    
     #[cfg(target_os = "macos")]
     {
-        match show_macos_notification(
+        let _ = show_macos_notification(
             "Tunnel Error",
             &format!("Failed to connect tunnel '{}':\n{}", tunnel_name, error_message)
-        ) {
-            Ok(_) => {},
-            Err(_) => {},
-            // Err(e) => logger.log_print(&format!("Error showing notification: {}", e)),
-        }
+        );
     }
     
     #[cfg(not(target_os = "macos"))]
     {
-            match Notification::new()
-                .summary("Drill - Tunnel Error")
-                .body(&format!("Failed to connect tunnel '{}':\n{}", tunnel_name, error_message))
-                .icon("dialog-error")
-                .timeout(Timeout::Milliseconds(10000))
-                .show()
-            {
-                Ok(_) => {},
-                Err(_) => {},
-            }
+        let _ = show_desktop_notification(
+            "Drill - Tunnel Error",
+            &format!("Failed to connect tunnel '{}':\n{}", tunnel_name, error_message),
+            "dialog-error",
+            10000,
+        );
     }
 }
 
 pub fn notify_tunnel_removed(tunnel_name: &str) {
-    // logger.log_print(&format!("Showing notification: Tunnel '{}' removed", tunnel_name));
-    
     #[cfg(target_os = "macos")]
     {
-        match show_macos_notification(
+        let _ = show_macos_notification(
             "Tunnel Removed",
             &format!("Tunnel '{}' has been removed", tunnel_name)
-        ) {
-            Ok(_) => {},
-            Err(_) => {},
-            // Err(e) => logger.log_print(&format!("Error showing notification: {}", e)),
-        }
+        );
     }
     
     #[cfg(not(target_os = "macos"))]
     {
-            match Notification::new()
-                .summary("Drill - Tunnel Removed")
-                .body(&format!("Tunnel '{}' has been removed", tunnel_name))
-                .icon("user-trash")
-                .timeout(Timeout::Milliseconds(5000))
-                .show()
-            {
-                Ok(_) => {},
-                Err(_) => {},
-            }
+        let _ = show_desktop_notification(
+            "Drill - Tunnel Removed",
+            &format!("Tunnel '{}' has been removed", tunnel_name),
+            "user-trash",
+            5000,
+        );
     }
 }
 
 pub fn notify_tunnel_created(tunnel_name: &str) {
-    // logger.log_print(&format!("Showing notification: Tunnel '{}' created", tunnel_name));
-    
     #[cfg(target_os = "macos")]
     {
-        match show_macos_notification(
+        let _ = show_macos_notification(
             "Tunnel Created",
             &format!("Tunnel '{}' has been created successfully", tunnel_name)
-        ) {
-            Ok(_) => {},
-            Err(_) => {},
-            // Err(e) => logger.log_print(&format!("Error showing notification: {}", e)),
-        }
+        );
     }
     
     #[cfg(not(target_os = "macos"))]
     {
-        match Notification::new()
-            .summary("Drill - Tunnel Created")
-            .body(&format!("Tunnel '{}' has been created successfully", tunnel_name))
-            .icon("emblem-default")
-            .timeout(Timeout::Milliseconds(5000))
-            .show()
-        {
-            Ok(_) => {}
-                Err(_) => {},
-        }
+        let _ = show_desktop_notification(
+            "Drill - Tunnel Created",
+            &format!("Tunnel '{}' has been created successfully", tunnel_name),
+            "emblem-default",
+            5000,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_send_notification() {
+        let res = notify_tunnel_connected("test_tunnel");
+        assert!(res.is_ok());
     }
 }
