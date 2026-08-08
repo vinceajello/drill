@@ -28,6 +28,8 @@
 
 ## 🧑‍💻 Building From Source
 
+Note: if you too lazy to build drill from source you can skip to pre-built binaries section
+
 ### Windows
 
 1. **Install Rust**
@@ -60,9 +62,36 @@ target/release/drill.exe
 ---
 
 ### macOS
+1. **Install Rust**
 
-🚧 **Coming Soon**
-Build instructions for macOS will be added shortly.
+   Install Rust via `rustup` if you don't already have it:
+
+   ```bash
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   source $HOME/.cargo/env
+   ```
+
+2. **Install the packager**
+
+   The project uses `cargo-packager` to create a `.dmg` on macOS. Install it once:
+
+   ```bash
+   cargo install cargo-packager
+   ```
+
+3. **Build & Package**
+
+   From the repository root, run:
+
+   ```bash
+   cargo packager --release
+   ```
+
+The compiled dmg will be available at:
+
+```
+target/release/bundle
+```
 
 ---
 
