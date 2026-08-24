@@ -166,7 +166,12 @@ impl App {
                     resizable: false,
                     ..window::Settings::default()
                 });
-                open.then(move |_| Task::done(Message::WindowOpened(id, WindowType::About)))
+                open.then(move |_| {
+                    Task::batch(vec![
+                        Task::done(Message::WindowOpened(id, WindowType::About)),
+                        window::gain_focus(id),
+                    ])
+                })
             }
 
             Message::OpenCreateTunnel => {
@@ -185,10 +190,13 @@ impl App {
                     ..window::Settings::default()
                 });
                 open.then(move |_| {
-                    Task::done(Message::WindowOpened(
-                        id,
-                        WindowType::new_tunnel_form_create(),
-                    ))
+                    Task::batch(vec![
+                        Task::done(Message::WindowOpened(
+                            id,
+                            WindowType::new_tunnel_form_create(),
+                        )),
+                        window::gain_focus(id),
+                    ])
                 })
             }
 
@@ -288,10 +296,13 @@ impl App {
                         ..window::Settings::default()
                     });
                     return open.then(move |_| {
-                        Task::done(Message::WindowOpened(
-                            id,
-                            WindowType::new_tunnel_form_edit(&tunnel_clone),
-                        ))
+                        Task::batch(vec![
+                            Task::done(Message::WindowOpened(
+                                id,
+                                WindowType::new_tunnel_form_edit(&tunnel_clone),
+                            )),
+                            window::gain_focus(id),
+                        ])
                     });
                 }
                 Task::none()
@@ -424,17 +435,22 @@ impl App {
             _ => None,
         });
 
-        // Non-blocking tray menu events subscription
+        // Event-driven tray menu events subscription (blocking recv in worker thread, no sleep/polling!)
         struct TrayEventsPoll;
         let tray_subscription = Subscription::run_with_id(
             std::any::TypeId::of::<TrayEventsPoll>(),
             iced::stream::channel(100, |mut output| async move {
-                let menu_channel = MenuEvent::receiver();
-                loop {
-                    while let Ok(event) = menu_channel.try_recv() {
-                        let _ = output.send(event).await;
+                let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+                std::thread::spawn(move || {
+                    let menu_channel = MenuEvent::receiver();
+                    while let Ok(event) = menu_channel.recv() {
+                        if tx.blocking_send(event).is_err() {
+                            break;
+                        }
                     }
-                    tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+                });
+                while let Some(event) = rx.recv().await {
+                    let _ = output.send(event).await;
                 }
             }),
         )

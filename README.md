@@ -87,25 +87,32 @@ target/release/drill.exe
    cd drill
    ```
 
-4. **Install cargo-packager**
+4. **Build and Install**:
 
    ```bash
-   cargo install cargo-packager
+   cargo build --release
+   ./macos/installer.sh install
    ```
 
-5. **Build the macOS Application Bundle**
+   Or build the `.app` bundle without installing to Applications:
 
    ```bash
-   cargo packager --release
+   ./macos/installer.sh build
    ```
 
-The compiled `.app` bundle will be available in:
+   The compiled `.app` bundle will be available in:
 
-```
-target/release/bundle/macos/
-```
+   ```
+   target/release/bundle/macos/Drill.app
+   ```
 
-> **MacOS Note:** Since the app is not code-signed when built locally, macOS may prevent it from opening. If you see a security warning, go to **System Settings > Privacy & Security** and click **"Open Anyway"** to allow the app to run.
+5. **Uninstall**:
+
+   ```bash
+   ./macos/installer.sh uninstall
+   ```
+
+   Use `./macos/installer.sh uninstall --purge` to also remove configuration data and logs.
 
 ---
 
