@@ -1,8 +1,8 @@
 [package]
 name = "drill"
-version = "0.1.0"
+version = "0.1.3"
 edition = "2021"
-authors = ["Your Name <you@example.com>"]
+authors = ["Your Name <you@example.com>"]s
 description = "A multi-platform application for macOS, Windows, and Linux"
 license = "MIT OR Apache-2.0"
 
