@@ -17,11 +17,13 @@ jobs:
             target: x86_64-pc-windows-msvc
           - os: macos-latest
             target: aarch64-apple-darwin
-    
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+
     runs-on: ${{ matrix.os }}
     env:
       RAW_TAG: ${{ github.ref_name }}
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,8 +34,21 @@ jobs:
           toolchain: stable
           override: true
 
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libdbus-1-dev libsoup-3.0-dev
+
       - name: Build Windows executable
         if: matrix.os == 'windows-latest'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build Linux executable
+        if: matrix.os == 'ubuntu-latest'
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Build macOS bundle
@@ -59,22 +74,42 @@ jobs:
           ver=${{ env.RAW_TAG }}
           ver=${ver#v}
           arch=$(echo "${{ matrix.target }}" | cut -d- -f1)
-          
+
           APP_PATH=$(find target/release/bundle -name "*.app" -type d | head -n 1)
           if [ -z "$APP_PATH" ]; then
             echo "Error: No .app bundle found"
             exit 1
           fi
-          
+
           TARBALL="target/release/bundle/drill_${ver}_macOS_${arch}.tar.gz"
           tar -czf "$TARBALL" -C "$(dirname "$APP_PATH")" "$(basename "$APP_PATH")"
           echo "TARBALL_FILE=$TARBALL" >> $GITHUB_ENV
-      
+
+      - name: Prepare Linux artifact name
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          ver=${{ env.RAW_TAG }}
+          ver=${ver#v}
+          arch=$(echo "${{ matrix.target }}" | cut -d- -f1)
+
+          TARBALL="target/${{ matrix.target }}/release/drill_${ver}_Linux_${arch}.tar.gz"
+          tar -czf "$TARBALL" -C "target/${{ matrix.target }}/release" drill
+          echo "LINUX_TARBALL_FILE=$TARBALL" >> $GITHUB_ENV
+
       - name: Upload Windows release asset
         if: matrix.os == 'windows-latest'
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.UPLOAD_FILE }}
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Linux release asset
+        if: matrix.os == 'ubuntu-latest'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.LINUX_TARBALL_FILE }}
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
