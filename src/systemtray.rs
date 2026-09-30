@@ -33,7 +33,7 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_statuses: &[(String, TunnelStatus
     let status_map: std::collections::HashMap<_, _> = tunnel_statuses.iter().cloned().collect();
     for tunnel in tunnels {
         // Get current status
-        let status = status_map.get(&tunnel.name).cloned().unwrap_or(TunnelStatus::Disconnected);
+        let status = status_map.get(&tunnel.id).cloned().unwrap_or(TunnelStatus::Disconnected);
         let display_name = get_tunnel_display_name(&tunnel.name, status.clone());
         
         // Create submenu for each tunnel with status indicator
@@ -44,22 +44,21 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_statuses: &[(String, TunnelStatus
             TunnelStatus::Disconnected | TunnelStatus::Error { .. } => {
                 let connect_item = MenuItem::new("Connect", true, None);
                 let connect_id = connect_item.id().clone();
-                tunnel_connect_ids.insert(tunnel.name.clone(), connect_id);
+                tunnel_connect_ids.insert(tunnel.id.clone(), connect_id);
                 tunnel_submenu.append(&connect_item)?;
             },
             TunnelStatus::Connecting | TunnelStatus::Connected { .. } | TunnelStatus::Reconnecting { .. } => {
                 let disconnect_item = MenuItem::new("Disconnect", true, None);
                 let disconnect_id = disconnect_item.id().clone();
-                tunnel_disconnect_ids.insert(tunnel.name.clone(), disconnect_id);
+                tunnel_disconnect_ids.insert(tunnel.id.clone(), disconnect_id);
                 tunnel_submenu.append(&disconnect_item)?;
                 
-                let status = tunnel_statuses.iter().find(|(name, _)| name == &tunnel.name).map(|(_, status)| status.clone()).unwrap_or(TunnelStatus::Disconnected);
                 if matches!(status, TunnelStatus::Connected { .. }) {
                     if let Some(ref web_url) = tunnel.web_url {
                         if !web_url.trim().is_empty() {
                             let open_web_item = MenuItem::new("Open Web", true, None);
                             let open_web_id = open_web_item.id().clone();
-                            tunnel_open_web_ids.insert(tunnel.name.clone(), open_web_id);
+                            tunnel_open_web_ids.insert(tunnel.id.clone(), open_web_id);
                             tunnel_submenu.append(&open_web_item)?;
                         }
                     }
@@ -71,13 +70,13 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_statuses: &[(String, TunnelStatus
         let is_connected = matches!(status, TunnelStatus::Connecting | TunnelStatus::Connected { .. } | TunnelStatus::Reconnecting { .. });
         let edit_item = MenuItem::new("Edit", !is_connected, None);
         let edit_id = edit_item.id().clone();
-        tunnel_edit_ids.insert(tunnel.name.clone(), edit_id);
+        tunnel_edit_ids.insert(tunnel.id.clone(), edit_id);
         tunnel_submenu.append(&edit_item)?;
         
         // Add Remove option (disabled when connected)
         let remove_item = MenuItem::new("Remove", !is_connected, None);
         let remove_id = remove_item.id().clone();
-        tunnel_remove_ids.insert(tunnel.name.clone(), remove_id);
+        tunnel_remove_ids.insert(tunnel.id.clone(), remove_id);
         tunnel_submenu.append(&remove_item)?;
         
         menu.append(&tunnel_submenu)?;
@@ -151,9 +150,10 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
     let mut tunnel_edit_ids = HashMap::new();
     let mut tunnel_remove_ids = HashMap::new();
     
+    let status_map: std::collections::HashMap<_, _> = tunnel_statuses.iter().cloned().collect();
     for tunnel in tunnels {
         // Get current status from tunnel_statuses
-        let status = tunnel_statuses.iter().find(|(name, _)| name == &tunnel.name).map(|(_, status)| status.clone()).unwrap_or(TunnelStatus::Disconnected);
+        let status = status_map.get(&tunnel.id).cloned().unwrap_or(TunnelStatus::Disconnected);
         let display_name = get_tunnel_display_name(&tunnel.name, status.clone());
         
         // Create submenu for each tunnel with status indicator
@@ -164,13 +164,13 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
             TunnelStatus::Disconnected | TunnelStatus::Error { .. } => {
                 let connect_item = MenuItem::new("Connect", true, None);
                 let connect_id = connect_item.id().clone();
-                tunnel_connect_ids.insert(tunnel.name.clone(), connect_id);
+                tunnel_connect_ids.insert(tunnel.id.clone(), connect_id);
                 tunnel_submenu.append(&connect_item)?;
             },
             TunnelStatus::Connecting | TunnelStatus::Connected { .. } | TunnelStatus::Reconnecting { .. } => {
                 let disconnect_item = MenuItem::new("Disconnect", true, None);
                 let disconnect_id = disconnect_item.id().clone();
-                tunnel_disconnect_ids.insert(tunnel.name.clone(), disconnect_id);
+                tunnel_disconnect_ids.insert(tunnel.id.clone(), disconnect_id);
                 tunnel_submenu.append(&disconnect_item)?;
                 
                 // Add "Open Web" button when connected and web_url is defined
@@ -179,7 +179,7 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
                         if !web_url.trim().is_empty() {
                             let open_web_item = MenuItem::new("Open Web", true, None);
                             let open_web_id = open_web_item.id().clone();
-                            tunnel_open_web_ids.insert(tunnel.name.clone(), open_web_id);
+                            tunnel_open_web_ids.insert(tunnel.id.clone(), open_web_id);
                             tunnel_submenu.append(&open_web_item)?;
                         }
                     }
@@ -191,13 +191,13 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
         let is_connected = matches!(status, TunnelStatus::Connecting | TunnelStatus::Connected { .. } | TunnelStatus::Reconnecting { .. });
         let edit_item = MenuItem::new("Edit", !is_connected, None);
         let edit_id = edit_item.id().clone();
-        tunnel_edit_ids.insert(tunnel.name.clone(), edit_id);
+        tunnel_edit_ids.insert(tunnel.id.clone(), edit_id);
         tunnel_submenu.append(&edit_item)?;
         
         // Add Remove option (disabled when connected)
         let remove_item = MenuItem::new("Remove", !is_connected, None);
         let remove_id = remove_item.id().clone();
-        tunnel_remove_ids.insert(tunnel.name.clone(), remove_id);
+        tunnel_remove_ids.insert(tunnel.id.clone(), remove_id);
         tunnel_submenu.append(&remove_item)?;
         
         menu.append(&tunnel_submenu)?;

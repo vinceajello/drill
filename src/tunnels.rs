@@ -27,10 +27,10 @@ pub enum TunnelStatus {
 /// Status update events from monitoring tasks
 #[derive(Debug, Clone)]
 pub enum StatusUpdate {
-    Connecting(String),
-    Connected(String),
-    Error(String, String),
-    Disconnected(String),
+    Connecting { tunnel_id: String, tunnel_name: String },
+    Connected { tunnel_id: String, tunnel_name: String },
+    Error { tunnel_id: String, tunnel_name: String, error: String },
+    Disconnected { tunnel_id: String, tunnel_name: String },
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -123,41 +123,41 @@ impl TunnelManager {
         }
     }
 
-    pub fn is_tunnel_active(&self, tunnel_name: &str) -> bool {
-        self.cancel_txs.contains_key(tunnel_name)
+    pub fn is_tunnel_active(&self, tunnel_id: &str) -> bool {
+        self.cancel_txs.contains_key(tunnel_id)
     }
 
-    pub fn get_tunnel_status(&self, tunnel_name: &str) -> TunnelStatus {
-        self.tunnel_status.get(tunnel_name).cloned().unwrap_or(TunnelStatus::Disconnected)
+    pub fn get_tunnel_status(&self, tunnel_id: &str) -> TunnelStatus {
+        self.tunnel_status.get(tunnel_id).cloned().unwrap_or(TunnelStatus::Disconnected)
     }
 
     pub fn update_status_from_event(&mut self, update: &StatusUpdate) {
         match update {
-            StatusUpdate::Connecting(name) => {
-                self.tunnel_status.insert(name.clone(), TunnelStatus::Connecting);
+            StatusUpdate::Connecting { tunnel_id, .. } => {
+                self.tunnel_status.insert(tunnel_id.clone(), TunnelStatus::Connecting);
             }
-            StatusUpdate::Connected(name) => {
-                self.tunnel_status.insert(name.clone(), TunnelStatus::Connected {
+            StatusUpdate::Connected { tunnel_id, .. } => {
+                self.tunnel_status.insert(tunnel_id.clone(), TunnelStatus::Connected {
                     connected_at: std::time::SystemTime::now(),
                 });
             }
-            StatusUpdate::Error(name, err) => {
-                self.cancel_txs.remove(name);
-                self.tunnel_status.insert(name.clone(), TunnelStatus::Error {
-                    error: err.clone(),
+            StatusUpdate::Error { tunnel_id, error, .. } => {
+                self.cancel_txs.remove(tunnel_id);
+                self.tunnel_status.insert(tunnel_id.clone(), TunnelStatus::Error {
+                    error: error.clone(),
                     occurred_at: std::time::SystemTime::now(),
                 });
             }
-            StatusUpdate::Disconnected(name) => {
-                self.cancel_txs.remove(name);
-                self.tunnel_status.insert(name.clone(), TunnelStatus::Disconnected);
+            StatusUpdate::Disconnected { tunnel_id, .. } => {
+                self.cancel_txs.remove(tunnel_id);
+                self.tunnel_status.insert(tunnel_id.clone(), TunnelStatus::Disconnected);
             }
         }
     }
 
     pub fn start_tunnel(&mut self, tunnel: &Tunnel) -> DrillResult<()> {
-        if self.cancel_txs.contains_key(&tunnel.name) {
-            info!("Tunnel '{}' is already running", tunnel.name);
+        if self.cancel_txs.contains_key(&tunnel.id) {
+            info!("Tunnel '{}' ({}) is already running", tunnel.name, tunnel.id);
             return Ok(());
         }
 
@@ -166,9 +166,12 @@ impl TunnelManager {
         };
 
         let (cancel_tx, cancel_rx) = oneshot::channel();
-        self.cancel_txs.insert(tunnel.name.clone(), cancel_tx);
-        self.tunnel_status.insert(tunnel.name.clone(), TunnelStatus::Connecting);
-        self.send_status_update(StatusUpdate::Connecting(tunnel.name.clone()));
+        self.cancel_txs.insert(tunnel.id.clone(), cancel_tx);
+        self.tunnel_status.insert(tunnel.id.clone(), TunnelStatus::Connecting);
+        self.send_status_update(StatusUpdate::Connecting {
+            tunnel_id: tunnel.id.clone(),
+            tunnel_name: tunnel.name.clone(),
+        });
 
         let tunnel_clone = tunnel.clone();
         tokio::spawn(async move {
@@ -178,26 +181,30 @@ impl TunnelManager {
         Ok(())
     }
 
-    pub fn stop_tunnel(&mut self, tunnel_name: &str) -> DrillResult<()> {
-        if let Some(cancel_tx) = self.cancel_txs.remove(tunnel_name) {
+    pub fn stop_tunnel(&mut self, tunnel_id: &str) -> DrillResult<()> {
+        if let Some(cancel_tx) = self.cancel_txs.remove(tunnel_id) {
             let _ = cancel_tx.send(());
-            self.tunnel_status.insert(tunnel_name.to_string(), TunnelStatus::Disconnected);
-            self.send_status_update(StatusUpdate::Disconnected(tunnel_name.to_string()));
-            info!("Tunnel '{}' cancel signal sent", tunnel_name);
+            self.tunnel_status.insert(tunnel_id.to_string(), TunnelStatus::Disconnected);
+            let tunnel_name = self.tunnels.iter().find(|t| t.id == tunnel_id).map(|t| t.name.clone()).unwrap_or_default();
+            self.send_status_update(StatusUpdate::Disconnected {
+                tunnel_id: tunnel_id.to_string(),
+                tunnel_name: tunnel_name.clone(),
+            });
+            info!("Tunnel '{}' ({}) cancel signal sent", tunnel_name, tunnel_id);
         }
         Ok(())
     }
 
-    pub fn remove_tunnel(&mut self, tunnel_name: &str) -> DrillResult<()> {
-        if self.is_tunnel_active(tunnel_name) {
-            self.stop_tunnel(tunnel_name)?;
+    pub fn remove_tunnel(&mut self, tunnel_id: &str) -> DrillResult<()> {
+        if self.is_tunnel_active(tunnel_id) {
+            self.stop_tunnel(tunnel_id)?;
         }
 
-        if let Some(index) = self.tunnels.iter().position(|t| t.name == tunnel_name) {
+        if let Some(index) = self.tunnels.iter().position(|t| t.id == tunnel_id) {
             self.tunnels.remove(index);
             Ok(())
         } else {
-            Err(DrillError::Tunnel(format!("Tunnel '{}' not found", tunnel_name)))
+            Err(DrillError::Tunnel(format!("Tunnel with ID '{}' not found", tunnel_id)))
         }
     }
 
@@ -291,10 +298,11 @@ pub async fn run_tunnel_supervisor(
     let port_num: u16 = match tunnel.local_port.parse() {
         Ok(p) => p,
         Err(_) => {
-            let _ = status_tx.send(StatusUpdate::Error(
-                tunnel.name.clone(),
-                format!("Invalid local port number: {}", tunnel.local_port),
-            ));
+            let _ = status_tx.send(StatusUpdate::Error {
+                tunnel_id: tunnel.id.clone(),
+                tunnel_name: tunnel.name.clone(),
+                error: format!("Invalid local port number: {}", tunnel.local_port),
+            });
             return;
         }
     };
@@ -306,16 +314,21 @@ pub async fn run_tunnel_supervisor(
     };
 
     if !is_port_available(bind_host, port_num) {
-        let _ = status_tx.send(StatusUpdate::Error(
-            tunnel.name.clone(),
-            format!("Local port {}:{} is already in use", bind_host, port_num),
-        ));
+        let _ = status_tx.send(StatusUpdate::Error {
+            tunnel_id: tunnel.id.clone(),
+            tunnel_name: tunnel.name.clone(),
+            error: format!("Local port {}:{} is already in use", bind_host, port_num),
+        });
         return;
     }
 
     if !tunnel.private_key.trim().is_empty() {
         if let Err(e) = check_private_key_permissions(&tunnel.private_key) {
-            let _ = status_tx.send(StatusUpdate::Error(tunnel.name.clone(), e.to_string()));
+            let _ = status_tx.send(StatusUpdate::Error {
+                tunnel_id: tunnel.id.clone(),
+                tunnel_name: tunnel.name.clone(),
+                error: e.to_string(),
+            });
             return;
         }
     }
@@ -360,10 +373,11 @@ pub async fn run_tunnel_supervisor(
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            let _ = status_tx.send(StatusUpdate::Error(
-                tunnel.name.clone(),
-                format!("Failed to spawn SSH process: {}", e),
-            ));
+            let _ = status_tx.send(StatusUpdate::Error {
+                tunnel_id: tunnel.id.clone(),
+                tunnel_name: tunnel.name.clone(),
+                error: format!("Failed to spawn SSH process: {}", e),
+            });
             return;
         }
     };
@@ -371,13 +385,19 @@ pub async fn run_tunnel_supervisor(
     let stderr_pipe = child.stderr.take();
 
     info!("SSH tunnel supervisor spawned for '{}': ssh -L {} -N -p {} {}", tunnel.name, local_forward, tunnel.ssh_port, remote);
-    let _ = status_tx.send(StatusUpdate::Connected(tunnel.name.clone()));
+    let _ = status_tx.send(StatusUpdate::Connected {
+        tunnel_id: tunnel.id.clone(),
+        tunnel_name: tunnel.name.clone(),
+    });
 
     tokio::select! {
         _ = &mut cancel_rx => {
             info!("Received cancellation for tunnel '{}'", tunnel.name);
             let _ = child.kill().await;
-            let _ = status_tx.send(StatusUpdate::Disconnected(tunnel.name));
+            let _ = status_tx.send(StatusUpdate::Disconnected {
+                tunnel_id: tunnel.id.clone(),
+                tunnel_name: tunnel.name.clone(),
+            });
         }
         status = child.wait() => {
             let mut stderr_buf = String::new();
@@ -397,7 +417,11 @@ pub async fn run_tunnel_supervisor(
                 Err(e) => format!("SSH process wait error: {}", e),
             };
             error!("Tunnel '{}' ended unexpectedly: {}", tunnel.name, err_msg);
-            let _ = status_tx.send(StatusUpdate::Error(tunnel.name, err_msg));
+            let _ = status_tx.send(StatusUpdate::Error {
+                tunnel_id: tunnel.id.clone(),
+                tunnel_name: tunnel.name.clone(),
+                error: err_msg,
+            });
         }
     }
 }
@@ -439,5 +463,52 @@ mod tests {
         let deserialized: TunnelFile = toml::from_str(&toml_str).unwrap();
         assert_eq!(deserialized.tunnels.len(), 1);
         assert_eq!(deserialized.tunnels[0].name, "Test Tunnel");
+    }
+
+    #[test]
+    fn test_multiple_tunnels_same_name_independent_status() {
+        let mut manager = TunnelManager::new();
+        let tunnel1 = Tunnel {
+            id: "id-1".to_string(),
+            name: "MongoDB - 7HUB".to_string(),
+            local_host: "127.0.0.1".to_string(),
+            local_port: "27017".to_string(),
+            remote_host: "10.0.0.6".to_string(),
+            remote_port: "27017".to_string(),
+            ssh_user: "root".to_string(),
+            ssh_host: "209.227.222.170".to_string(),
+            ssh_port: "4242".to_string(),
+            private_key: "".to_string(),
+            web_url: None,
+        };
+        let tunnel2 = Tunnel {
+            id: "id-2".to_string(),
+            name: "MongoDB - 7HUB".to_string(),
+            local_host: "127.0.0.1".to_string(),
+            local_port: "27018".to_string(),
+            remote_host: "127.0.0.1".to_string(),
+            remote_port: "27017".to_string(),
+            ssh_user: "root".to_string(),
+            ssh_host: "209.227.222.170".to_string(),
+            ssh_port: "4242".to_string(),
+            private_key: "".to_string(),
+            web_url: None,
+        };
+
+        manager.set_tunnels(vec![tunnel1.clone(), tunnel2.clone()]);
+
+        // Verify status tracked by ID independently
+        manager.update_status_from_event(&StatusUpdate::Connected {
+            tunnel_id: "id-1".to_string(),
+            tunnel_name: "MongoDB - 7HUB".to_string(),
+        });
+
+        assert!(matches!(manager.get_tunnel_status("id-1"), TunnelStatus::Connected { .. }));
+        assert_eq!(manager.get_tunnel_status("id-2"), TunnelStatus::Disconnected);
+
+        // Remove tunnel 1 by ID without affecting tunnel 2
+        assert!(manager.remove_tunnel("id-1").is_ok());
+        assert_eq!(manager.get_tunnels().len(), 1);
+        assert_eq!(manager.get_tunnels()[0].id, "id-2");
     }
 }

@@ -109,7 +109,7 @@ impl App {
         let tunnel_statuses: Vec<(String, TunnelStatus)> = tunnel_manager
             .get_tunnels()
             .iter()
-            .map(|t| (t.name.clone(), tunnel_manager.get_tunnel_status(&t.name)))
+            .map(|t| (t.id.clone(), tunnel_manager.get_tunnel_status(&t.id)))
             .collect();
 
         #[cfg(not(target_os = "linux"))]
@@ -203,20 +203,20 @@ impl App {
             Message::TunnelStatusUpdate(update) => {
                 self.tunnel_manager.update_status_from_event(&update);
                 match update {
-                    StatusUpdate::Connecting(ref tunnel_name) => {
+                    StatusUpdate::Connecting { ref tunnel_name, .. } => {
                         info!("Tunnel '{}' is connecting...", tunnel_name);
                     }
-                    StatusUpdate::Connected(ref tunnel_name) => {
+                    StatusUpdate::Connected { ref tunnel_name, .. } => {
                         info!("Tunnel '{}' connected successfully", tunnel_name);
                         let _ = notifications::notify_tunnel_connected(tunnel_name);
                         return self.update(Message::UpdateTrayMenu);
                     }
-                    StatusUpdate::Error(ref tunnel_name, ref err) => {
-                        error!("Tunnel '{}' error: {}", tunnel_name, err);
-                        notifications::notify_tunnel_error(tunnel_name, err);
+                    StatusUpdate::Error { ref tunnel_name, ref error, .. } => {
+                        error!("Tunnel '{}' error: {}", tunnel_name, error);
+                        notifications::notify_tunnel_error(tunnel_name, error);
                         return self.update(Message::UpdateTrayMenu);
                     }
-                    StatusUpdate::Disconnected(ref tunnel_name) => {
+                    StatusUpdate::Disconnected { ref tunnel_name, .. } => {
                         info!("Tunnel '{}' disconnected", tunnel_name);
                         return self.update(Message::UpdateTrayMenu);
                     }
@@ -224,24 +224,32 @@ impl App {
                 Task::none()
             }
 
-            Message::TunnelConnect(tunnel_name) => {
+            Message::TunnelConnect(tunnel_id) => {
                 if let Some(tunnel) = self
                     .tunnel_manager
                     .get_tunnels()
                     .iter()
-                    .find(|t| t.name == tunnel_name)
+                    .find(|t| t.id == tunnel_id)
                     .cloned()
                 {
                     if let Err(e) = self.tunnel_manager.start_tunnel(&tunnel) {
-                        error!("Error starting tunnel '{}': {}", tunnel_name, e);
-                        notifications::notify_tunnel_error(&tunnel_name, &e.to_string());
+                        error!("Error starting tunnel '{}': {}", tunnel.name, e);
+                        notifications::notify_tunnel_error(&tunnel.name, &e.to_string());
                     }
                 }
                 self.update(Message::UpdateTrayMenu)
             }
 
-            Message::TunnelDisconnect(tunnel_name) => {
-                if let Err(e) = self.tunnel_manager.stop_tunnel(&tunnel_name) {
+            Message::TunnelDisconnect(tunnel_id) => {
+                let tunnel_name = self
+                    .tunnel_manager
+                    .get_tunnels()
+                    .iter()
+                    .find(|t| t.id == tunnel_id)
+                    .map(|t| t.name.clone())
+                    .unwrap_or_else(|| tunnel_id.clone());
+
+                if let Err(e) = self.tunnel_manager.stop_tunnel(&tunnel_id) {
                     error!("Error stopping tunnel '{}': {}", tunnel_name, e);
                 } else {
                     notifications::notify_tunnel_disconnected(&tunnel_name);
@@ -249,12 +257,12 @@ impl App {
                 self.update(Message::UpdateTrayMenu)
             }
 
-            Message::TunnelOpenWeb(tunnel_name) => {
+            Message::TunnelOpenWeb(tunnel_id) => {
                 if let Some(tunnel) = self
                     .tunnel_manager
                     .get_tunnels()
                     .iter()
-                    .find(|t| t.name == tunnel_name)
+                    .find(|t| t.id == tunnel_id)
                 {
                     if let Some(ref web_url) = tunnel.web_url {
                         if !web_url.trim().is_empty() {
@@ -263,22 +271,22 @@ impl App {
                                 error!("Error opening URL '{}': {}", web_url, e);
                             }
                         } else {
-                            warn!("No Web URL defined for tunnel '{}'", tunnel_name);
+                            warn!("No Web URL defined for tunnel '{}'", tunnel.name);
                         }
                     } else {
-                        warn!("No Web URL defined for tunnel '{}'", tunnel_name);
+                        warn!("No Web URL defined for tunnel '{}'", tunnel.name);
                     }
                 }
                 Task::none()
             }
 
-            Message::TunnelEdit(tunnel_name) => {
+            Message::TunnelEdit(tunnel_id) => {
                 if let Some((window_id, _wt)) = self.windows.iter().find(|(_, wt)| {
                     matches!(
                         wt,
                         WindowType::TunnelForm(state)
-                            if matches!(&state.mode, windows::FormMode::Edit { tunnel_id }
-                                if self.tunnel_manager.get_tunnels().iter().any(|t| t.name == tunnel_name && &t.id == tunnel_id))
+                            if matches!(&state.mode, windows::FormMode::Edit { tunnel_id: ref tid }
+                                if tid == &tunnel_id)
                     )
                 }) {
                     return window::gain_focus(*window_id);
@@ -287,7 +295,7 @@ impl App {
                     .tunnel_manager
                     .get_tunnels()
                     .iter()
-                    .find(|t| t.name == tunnel_name)
+                    .find(|t| t.id == tunnel_id)
                 {
                     let tunnel_clone = tunnel.clone();
                     let (id, open) = window::open(window::Settings {
@@ -308,9 +316,17 @@ impl App {
                 Task::none()
             }
 
-            Message::TunnelRemove(tunnel_name) => {
+            Message::TunnelRemove(tunnel_id) => {
+                let tunnel_name = self
+                    .tunnel_manager
+                    .get_tunnels()
+                    .iter()
+                    .find(|t| t.id == tunnel_id)
+                    .map(|t| t.name.clone())
+                    .unwrap_or_else(|| tunnel_id.clone());
+
                 info!("Removing tunnel '{}'", tunnel_name);
-                match self.tunnel_manager.remove_tunnel(&tunnel_name) {
+                match self.tunnel_manager.remove_tunnel(&tunnel_id) {
                     Ok(_) => {
                         if let Err(e) = TunnelManager::save_tunnels(
                             &self.tunnels_file,
@@ -385,7 +401,7 @@ impl App {
                     .tunnel_manager
                     .get_tunnels()
                     .iter()
-                    .map(|t| (t.name.clone(), self.tunnel_manager.get_tunnel_status(&t.name)))
+                    .map(|t| (t.id.clone(), self.tunnel_manager.get_tunnel_status(&t.id)))
                     .collect();
 
                 #[cfg(not(target_os = "linux"))]
@@ -503,29 +519,29 @@ impl App {
             return self.update(Message::Quit);
         }
 
-        for (tunnel_name, menu_id) in &menu_ids.tunnel_connect {
+        for (tunnel_id, menu_id) in &menu_ids.tunnel_connect {
             if event.id == *menu_id {
-                return self.update(Message::TunnelConnect(tunnel_name.clone()));
+                return self.update(Message::TunnelConnect(tunnel_id.clone()));
             }
         }
-        for (tunnel_name, menu_id) in &menu_ids.tunnel_disconnect {
+        for (tunnel_id, menu_id) in &menu_ids.tunnel_disconnect {
             if event.id == *menu_id {
-                return self.update(Message::TunnelDisconnect(tunnel_name.clone()));
+                return self.update(Message::TunnelDisconnect(tunnel_id.clone()));
             }
         }
-        for (tunnel_name, menu_id) in &menu_ids.tunnel_open_web {
+        for (tunnel_id, menu_id) in &menu_ids.tunnel_open_web {
             if event.id == *menu_id {
-                return self.update(Message::TunnelOpenWeb(tunnel_name.clone()));
+                return self.update(Message::TunnelOpenWeb(tunnel_id.clone()));
             }
         }
-        for (tunnel_name, menu_id) in &menu_ids.tunnel_edit {
+        for (tunnel_id, menu_id) in &menu_ids.tunnel_edit {
             if event.id == *menu_id {
-                return self.update(Message::TunnelEdit(tunnel_name.clone()));
+                return self.update(Message::TunnelEdit(tunnel_id.clone()));
             }
         }
-        for (tunnel_name, menu_id) in &menu_ids.tunnel_remove {
+        for (tunnel_id, menu_id) in &menu_ids.tunnel_remove {
             if event.id == *menu_id {
-                return self.update(Message::TunnelRemove(tunnel_name.clone()));
+                return self.update(Message::TunnelRemove(tunnel_id.clone()));
             }
         }
 
@@ -558,6 +574,32 @@ impl App {
         match windows::create_tunnel::validate_and_create_tunnel(state) {
             Ok(mut tunnel) => {
                 let mode = state.mode.clone();
+
+                // Validate that tunnel name is unique
+                let name_trimmed = tunnel.name.trim();
+                let is_duplicate_name = match &mode {
+                    windows::FormMode::Create => self
+                        .tunnel_manager
+                        .get_tunnels()
+                        .iter()
+                        .any(|t| t.name.trim().eq_ignore_ascii_case(name_trimmed)),
+                    windows::FormMode::Edit { tunnel_id } => self
+                        .tunnel_manager
+                        .get_tunnels()
+                        .iter()
+                        .any(|t| &t.id != tunnel_id && t.name.trim().eq_ignore_ascii_case(name_trimmed)),
+                };
+
+                if is_duplicate_name {
+                    if let Some(WindowType::TunnelForm(state)) = self.windows.get_mut(&window_id) {
+                        state.error_message = Some(format!(
+                            "A tunnel with the name '{}' already exists",
+                            name_trimmed
+                        ));
+                    }
+                    return Task::none();
+                }
+
                 match mode {
                     windows::FormMode::Create => {
                         self.tunnel_manager.add_tunnel(tunnel.clone());
