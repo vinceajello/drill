@@ -45,6 +45,7 @@ pub enum Message {
     TunnelConnect(String),
     TunnelDisconnect(String),
     TunnelOpenWeb(String),
+    TunnelCopyCommand(String),
     TunnelEdit(String),
     TunnelRemove(String),
     Quit,
@@ -276,6 +277,25 @@ impl App {
                     } else {
                         warn!("No Web URL defined for tunnel '{}'", tunnel.name);
                     }
+                }
+                Task::none()
+            }
+
+            Message::TunnelCopyCommand(tunnel_id) => {
+                if let Some(tunnel) = self
+                    .tunnel_manager
+                    .get_tunnels()
+                    .iter()
+                    .find(|t| t.id == tunnel_id)
+                {
+                    let cmd = tunnel.ssh_command();
+                    info!("Copying SSH command for tunnel '{}' to clipboard: {}", tunnel.name, cmd);
+                    if let Err(e) = platform::set_clipboard_text(&cmd) {
+                        error!("Failed to copy command to clipboard: {}", e);
+                    } else {
+                        notifications::notify_command_copied(&tunnel.name);
+                    }
+                    return iced::clipboard::write(cmd);
                 }
                 Task::none()
             }
@@ -532,6 +552,11 @@ impl App {
         for (tunnel_id, menu_id) in &menu_ids.tunnel_open_web {
             if event.id == *menu_id {
                 return self.update(Message::TunnelOpenWeb(tunnel_id.clone()));
+            }
+        }
+        for (tunnel_id, menu_id) in &menu_ids.tunnel_copy_command {
+            if event.id == *menu_id {
+                return self.update(Message::TunnelCopyCommand(tunnel_id.clone()));
             }
         }
         for (tunnel_id, menu_id) in &menu_ids.tunnel_edit {

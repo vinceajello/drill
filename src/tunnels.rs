@@ -50,6 +50,63 @@ pub struct Tunnel {
     pub web_url: Option<String>,
 }
 
+impl Tunnel {
+    /// Builds the list of command-line arguments for running this SSH tunnel
+    pub fn ssh_args(&self) -> Vec<String> {
+        let bind_host = if self.local_host.trim().is_empty() {
+            "127.0.0.1"
+        } else {
+            self.local_host.trim()
+        };
+
+        let local_forward = format!(
+            "{}:{}:{}:{}",
+            bind_host, self.local_port, self.remote_host, self.remote_port
+        );
+        let remote = format!("{}@{}", self.ssh_user, self.ssh_host);
+
+        let mut args = Vec::new();
+
+        if !self.private_key.trim().is_empty() {
+            args.push("-i".to_string());
+            args.push(self.private_key.trim().to_string());
+        }
+
+        args.extend([
+            "-L".to_string(),
+            local_forward,
+            "-N".to_string(),
+            "-o".to_string(),
+            "ExitOnForwardFailure=yes".to_string(),
+            "-o".to_string(),
+            "ServerAliveInterval=30".to_string(),
+            "-o".to_string(),
+            "ServerAliveCountMax=3".to_string(),
+            "-o".to_string(),
+            "ConnectTimeout=10".to_string(),
+            "-p".to_string(),
+            self.ssh_port.clone(),
+            remote,
+        ]);
+
+        args
+    }
+
+    /// Generates the complete SSH command string to run or copy to the clipboard
+    pub fn ssh_command(&self) -> String {
+        let args = self.ssh_args();
+        let mut parts = vec!["ssh".to_string()];
+        for arg in args {
+            if arg.contains(' ') || arg.contains('\t') || arg.is_empty() {
+                parts.push(format!("\"{}\"", arg));
+            } else {
+                parts.push(arg);
+            }
+        }
+        parts.join(" ")
+    }
+}
+
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct TunnelFile {
     pub tunnels: Vec<Tunnel>,
@@ -333,34 +390,8 @@ pub async fn run_tunnel_supervisor(
         }
     }
 
-    let local_forward = format!(
-        "{}:{}:{}:{}",
-        bind_host, tunnel.local_port, tunnel.remote_host, tunnel.remote_port
-    );
-    let remote = format!("{}@{}", tunnel.ssh_user, tunnel.ssh_host);
-
     let mut cmd = tokio::process::Command::new("ssh");
-
-    if !tunnel.private_key.trim().is_empty() {
-        cmd.arg("-i").arg(&tunnel.private_key);
-    }
-
-    cmd.args([
-        "-L",
-        &local_forward,
-        "-N",
-        "-o",
-        "ExitOnForwardFailure=yes",
-        "-o",
-        "ServerAliveInterval=30",
-        "-o",
-        "ServerAliveCountMax=3",
-        "-o",
-        "ConnectTimeout=10",
-        "-p",
-        &tunnel.ssh_port,
-        &remote,
-    ]);
+    cmd.args(tunnel.ssh_args());
 
     cmd.stderr(std::process::Stdio::piped());
 
@@ -384,7 +415,7 @@ pub async fn run_tunnel_supervisor(
 
     let stderr_pipe = child.stderr.take();
 
-    info!("SSH tunnel supervisor spawned for '{}': ssh -L {} -N -p {} {}", tunnel.name, local_forward, tunnel.ssh_port, remote);
+    info!("SSH tunnel supervisor spawned for '{}': {}", tunnel.name, tunnel.ssh_command());
     let _ = status_tx.send(StatusUpdate::Connected {
         tunnel_id: tunnel.id.clone(),
         tunnel_name: tunnel.name.clone(),
@@ -510,5 +541,74 @@ mod tests {
         assert!(manager.remove_tunnel("id-1").is_ok());
         assert_eq!(manager.get_tunnels().len(), 1);
         assert_eq!(manager.get_tunnels()[0].id, "id-2");
+    }
+
+    #[test]
+    fn test_tunnel_ssh_command_generation() {
+        let tunnel = Tunnel {
+            id: "id-1".to_string(),
+            name: "Test Tunnel".to_string(),
+            local_host: "".to_string(),
+            local_port: "8080".to_string(),
+            remote_host: "10.0.0.1".to_string(),
+            remote_port: "80".to_string(),
+            ssh_user: "user".to_string(),
+            ssh_host: "example.com".to_string(),
+            ssh_port: "22".to_string(),
+            private_key: "".to_string(),
+            web_url: None,
+        };
+
+        let cmd = tunnel.ssh_command();
+        assert_eq!(
+            cmd,
+            "ssh -L 127.0.0.1:8080:10.0.0.1:80 -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=10 -p 22 user@example.com"
+        );
+    }
+
+    #[test]
+    fn test_tunnel_ssh_command_with_private_key() {
+        let tunnel = Tunnel {
+            id: "id-2".to_string(),
+            name: "Key Tunnel".to_string(),
+            local_host: "0.0.0.0".to_string(),
+            local_port: "3306".to_string(),
+            remote_host: "db.internal".to_string(),
+            remote_port: "3306".to_string(),
+            ssh_user: "admin".to_string(),
+            ssh_host: "bastion.org".to_string(),
+            ssh_port: "2222".to_string(),
+            private_key: "/home/user/.ssh/id_rsa".to_string(),
+            web_url: None,
+        };
+
+        let cmd = tunnel.ssh_command();
+        assert_eq!(
+            cmd,
+            "ssh -i /home/user/.ssh/id_rsa -L 0.0.0.0:3306:db.internal:3306 -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=10 -p 2222 admin@bastion.org"
+        );
+    }
+
+    #[test]
+    fn test_tunnel_ssh_command_with_spaces_in_key_path() {
+        let tunnel = Tunnel {
+            id: "id-3".to_string(),
+            name: "Spaces Key Tunnel".to_string(),
+            local_host: "127.0.0.1".to_string(),
+            local_port: "5432".to_string(),
+            remote_host: "localhost".to_string(),
+            remote_port: "5432".to_string(),
+            ssh_user: "pg".to_string(),
+            ssh_host: "db.com".to_string(),
+            ssh_port: "22".to_string(),
+            private_key: "/Users/John Doe/.ssh/custom key".to_string(),
+            web_url: None,
+        };
+
+        let cmd = tunnel.ssh_command();
+        assert_eq!(
+            cmd,
+            "ssh -i \"/Users/John Doe/.ssh/custom key\" -L 127.0.0.1:5432:localhost:5432 -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=10 -p 22 pg@db.com"
+        );
     }
 }

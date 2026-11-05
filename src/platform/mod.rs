@@ -15,6 +15,15 @@ pub fn get_project_dirs() -> DrillResult<ProjectDirs> {
         .ok_or_else(|| DrillError::Config("Could not resolve system project directories".to_string()))
 }
 
+pub fn set_clipboard_text(text: &str) -> DrillResult<()> {
+    let mut clipboard = arboard::Clipboard::new()
+        .map_err(|e| DrillError::Clipboard(format!("Failed to initialize clipboard: {}", e)))?;
+    clipboard
+        .set_text(text)
+        .map_err(|e| DrillError::Clipboard(format!("Failed to copy to clipboard: {}", e)))?;
+    Ok(())
+}
+
 pub fn get_platform_name() -> &'static str {
     #[cfg(target_os = "macos")]
     return "macOS";
@@ -37,3 +46,21 @@ pub mod macos;
 
 #[cfg(target_os = "windows")]
 pub mod windows;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clipboard_copy() {
+        let test_text = "ssh -L 8080:127.0.0.1:80 -N user@host";
+        let res = set_clipboard_text(test_text);
+        assert!(res.is_ok());
+
+        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+            if let Ok(text) = clipboard.get_text() {
+                assert_eq!(text, test_text);
+            }
+        }
+    }
+}

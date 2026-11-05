@@ -24,4 +24,7 @@ pub enum DrillError {
 
     #[error("Notification error: {0}")]
     Notification(String),
+
+    #[error("Clipboard error: {0}")]
+    Clipboard(String),
 }

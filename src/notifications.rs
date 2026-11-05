@@ -83,6 +83,20 @@ pub fn notify_tunnel_created(tunnel_name: &str) {
     let _ = crate::platform::windows::show_desktop_notification(summary, &body, "emblem-default", 5000);
 }
 
+pub fn notify_command_copied(tunnel_name: &str) {
+    let summary = "Drill - Command Copied";
+    let body = format!("SSH command for '{}' copied to clipboard", tunnel_name);
+
+    #[cfg(target_os = "macos")]
+    let _ = crate::platform::macos::show_macos_notification(summary, &body);
+
+    #[cfg(target_os = "linux")]
+    let _ = crate::platform::linux::show_desktop_notification(summary, &body, "edit-copy", 3000);
+
+    #[cfg(target_os = "windows")]
+    let _ = crate::platform::windows::show_desktop_notification(summary, &body, "edit-copy", 3000);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

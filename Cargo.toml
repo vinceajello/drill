@@ -70,6 +70,9 @@ notify-rust = "4"
 # Open URLs in the default browser
 open = "5.0"
 
+# Clipboard management
+arboard = "3"
+
 # Image processing for loading icons
 image = "0.25"
 

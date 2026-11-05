@@ -9,6 +9,7 @@ pub struct TrayMenuIds {
     pub tunnel_connect: HashMap<String, MenuId>,
     pub tunnel_disconnect: HashMap<String, MenuId>,
     pub tunnel_open_web: HashMap<String, MenuId>,
+    pub tunnel_copy_command: HashMap<String, MenuId>,
     pub tunnel_edit: HashMap<String, MenuId>,
     pub tunnel_remove: HashMap<String, MenuId>,
 }
@@ -27,6 +28,7 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_statuses: &[(String, TunnelStatus
     let mut tunnel_connect_ids = HashMap::new();
     let mut tunnel_disconnect_ids = HashMap::new();
     let mut tunnel_open_web_ids: HashMap<String, MenuId> = HashMap::new();
+    let mut tunnel_copy_command_ids = HashMap::new();
     let mut tunnel_edit_ids = HashMap::new();
     let mut tunnel_remove_ids = HashMap::new();
     
@@ -66,6 +68,12 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_statuses: &[(String, TunnelStatus
             }
         }
         
+        // Add Copy Command option
+        let copy_command_item = MenuItem::new("Copy Command", true, None);
+        let copy_command_id = copy_command_item.id().clone();
+        tunnel_copy_command_ids.insert(tunnel.id.clone(), copy_command_id);
+        tunnel_submenu.append(&copy_command_item)?;
+
         // Add Edit option (disabled when connected)
         let is_connected = matches!(status, TunnelStatus::Connecting | TunnelStatus::Connected { .. } | TunnelStatus::Reconnecting { .. });
         let edit_item = MenuItem::new("Edit", !is_connected, None);
@@ -128,6 +136,7 @@ pub fn init_tray(tunnels: &Vec<Tunnel>, tunnel_statuses: &[(String, TunnelStatus
         tunnel_connect: tunnel_connect_ids,
         tunnel_disconnect: tunnel_disconnect_ids,
         tunnel_open_web: tunnel_open_web_ids,
+        tunnel_copy_command: tunnel_copy_command_ids,
         tunnel_edit: tunnel_edit_ids,
         tunnel_remove: tunnel_remove_ids,
     }))
@@ -147,6 +156,7 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
     let mut tunnel_connect_ids = HashMap::new();
     let mut tunnel_disconnect_ids = HashMap::new();
     let mut tunnel_open_web_ids: HashMap<String, MenuId> = HashMap::new();
+    let mut tunnel_copy_command_ids = HashMap::new();
     let mut tunnel_edit_ids = HashMap::new();
     let mut tunnel_remove_ids = HashMap::new();
     
@@ -187,6 +197,12 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
             }
         }
         
+        // Add Copy Command option
+        let copy_command_item = MenuItem::new("Copy Command", true, None);
+        let copy_command_id = copy_command_item.id().clone();
+        tunnel_copy_command_ids.insert(tunnel.id.clone(), copy_command_id);
+        tunnel_submenu.append(&copy_command_item)?;
+
         // Add Edit option (disabled when connected)
         let is_connected = matches!(status, TunnelStatus::Connecting | TunnelStatus::Connected { .. } | TunnelStatus::Reconnecting { .. });
         let edit_item = MenuItem::new("Edit", !is_connected, None);
@@ -231,6 +247,7 @@ pub fn update_tray_menu(tray_icon: &mut TrayIcon, tunnels: &Vec<Tunnel>, tunnel_
         tunnel_connect: tunnel_connect_ids,
         tunnel_disconnect: tunnel_disconnect_ids,
         tunnel_open_web: tunnel_open_web_ids,
+        tunnel_copy_command: tunnel_copy_command_ids,
         tunnel_edit: tunnel_edit_ids,
         tunnel_remove: tunnel_remove_ids,
     })
